@@ -2,12 +2,10 @@ defmodule PolyBot.Parameters do
   @moduledoc """
   Exposes the configuration parameters for this bot.
 
-  Each parameter has its own accessor (e.g. `venue/0`); `event_fetch_opts/0`
-  and `event_poller_opts/0` are keyword-list bundles of those accessors.
+  `event_fetch_worker_opts/0` builds the arguments for
+  `PolyBot.EventFetch.Worker`; `event_fetch_opts/0` builds the Gamma query
+  filters those fetches use.
   """
-
-  alias PolyBot.Venues.Fake
-  alias PolyBot.Venues.Polymarket
 
   @typedoc """
   The full bundle of options used to fetch a list of events from the Gamma
@@ -25,34 +23,38 @@ defmodule PolyBot.Parameters do
           liquidity_min: integer()
         ]
 
-  @typedoc """
-  Arguments for the event poller process.
+  @doc """
+  Builds the argument keyword-list for `PolyBot.EventFetch.Worker`.
 
-    * `:interval_ms` - delay between polls, in milliseconds, from config; `0`
-      (or less) disables polling entirely
+  Bundles the config-driven poll `:interval_ms` with the `:fetch_opts` the
+  worker forwards to `PolyBot.EventFetch.sync_events/1`.
+
+  ## Examples
+
+      iex> event_fetch_worker_opts()
+      [interval_ms: 300_000, fetch_opts: [liquidity_min: 10_000, limit: 100, closed: false, active: true]]
+
   """
-  @type event_poller_opts :: [
-          interval_ms: non_neg_integer(),
-          venue: Fake | Polymarket
-        ]
-
-  @typedoc """
-  Arguments for the websocket shard manager.
-
-    * `:cap` - max asset subscriptions per socket, from config
-    * `:handler` - `Polymarket.WebSocket.Handler` module each socket uses
-  """
-  @type shard_opts :: [
-          cap: pos_integer(),
-          handler: module()
-        ]
+  @spec event_fetch_worker_opts :: PolyBot.EventFetch.Worker.opts()
+  def event_fetch_worker_opts do
+    [
+      interval_ms: interval_ms(),
+      fetch_opts: event_fetch_opts()
+    ]
+  end
 
   @doc """
   Builds the keyword-list of options for fetching a list of events.
 
   Bundles the static Gamma query filters (`:limit`, `:closed`, `:active`) with
-  the config-driven `:liquidity_min` accessor, ready to hand to a venue's
-  `stream_events/1`.
+  the config-driven `:liquidity_min` accessor, ready to hand to
+  `Polymarket.Gamma.stream_events/1`.
+
+  ## Examples
+
+      iex> event_fetch_opts()
+      [liquidity_min: 10_000, limit: 100, closed: false, active: true]
+
   """
   @spec event_fetch_opts :: event_fetch_opts()
   def event_fetch_opts do
@@ -68,10 +70,16 @@ defmodule PolyBot.Parameters do
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
 
+  @spec interval_ms :: non_neg_integer()
+  defp interval_ms, do: event_fetcher_env(:interval_ms)
+
   @spec minimum_liquidity :: integer()
-  defp minimum_liquidity do
+  defp minimum_liquidity, do: event_fetcher_env(:minimum_liquidity)
+
+  @spec event_fetcher_env(atom()) :: term()
+  defp event_fetcher_env(key) do
     Application.fetch_env!(:poly_bot, :event_fetcher)
-    |> Keyword.fetch!(:minimum_liquidity)
+    |> Keyword.fetch!(key)
   end
 
   @spec add_if_not_infinity(Keyword.t(), atom(), term()) :: Keyword.t()

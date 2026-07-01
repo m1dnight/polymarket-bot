@@ -5,6 +5,9 @@ defmodule PolyBot.Application do
 
   use Application
 
+  alias PolyBot.EventFetch
+  alias PolyBot.Parameters
+
   @impl true
   def start(_type, _args) do
     children = [
@@ -12,8 +15,8 @@ defmodule PolyBot.Application do
       PolyBot.Repo,
       {DNSCluster, query: Application.get_env(:poly_bot, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PolyBot.PubSub},
-      # Start a worker by calling: PolyBot.Worker.start_link(arg)
-      # {PolyBot.Worker, arg},
+      # Periodically fetches Polymarket events into the database.
+      {EventFetch.Worker, Parameters.event_fetch_worker_opts()},
       # Start to serve requests, typically the last entry
       PolyBotWeb.Endpoint
     ]

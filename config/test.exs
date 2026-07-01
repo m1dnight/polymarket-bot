@@ -39,3 +39,9 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# runtime.exs skips its env-var config in test, so hardcode the event fetcher
+# parameters here. A non-positive interval keeps the worker off the live API.
+config :poly_bot, :event_fetcher,
+  minimum_liquidity: 10_000,
+  interval_ms: 0

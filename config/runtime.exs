@@ -23,6 +23,21 @@ end
 config :poly_bot, PolyBotWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Env-var-driven configuration. Skipped in the test environment, which hardcodes
+# these values in config/test.exs so tests never read the environment.
+if config_env() != :test do
+  import PolyBot.Config, only: [optional: 3]
+
+  # Backs the config-driven values in `PolyBot.Parameters` used by the event
+  # fetch worker. Surfaced as env vars so they can be tuned per deployment
+  # without a rebuild.
+  config :poly_bot, :event_fetcher,
+    # smallest acceptable event liquidity when fetching events from Gamma
+    minimum_liquidity: optional("EVENT_FETCHER_MINIMUM_LIQUIDITY", :integer, 10_000),
+    # delay between fetches, in ms; 0 (or less) disables polling entirely
+    interval_ms: optional("EVENT_FETCHER_INTERVAL_MS", :integer, :timer.minutes(5))
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
