@@ -40,7 +40,7 @@ defmodule PolyBot.WebSocketManager do
   """
   @spec connect() :: DynamicSupervisor.on_start_child()
   def connect do
-    SocketSupervisor.add_connection()
+    SocketSupervisor.add_connection(handler: PolyBot.Handler)
   end
 
   @doc """
@@ -56,9 +56,9 @@ defmodule PolyBot.WebSocketManager do
       :ok
 
   """
-  @spec subscribe(pid(), String.t()) :: :ok
-  def subscribe(connection, asset_id) do
-    WebSocket.send_message(connection, subscribe_message(asset_id))
+  @spec subscribe(pid(), [String.t()]) :: :ok
+  def subscribe(connection, asset_ids) do
+    WebSocket.send_message(connection, subscribe_message(asset_ids))
   end
 
   # ---------------------------------------------------------------------------#
@@ -66,11 +66,11 @@ defmodule PolyBot.WebSocketManager do
   # ---------------------------------------------------------------------------#
 
   # Builds the CLOB market-channel `subscribe` payload for a single asset id.
-  @spec subscribe_message(String.t()) :: String.t()
-  defp subscribe_message(asset_id) do
+  @spec subscribe_message([String.t()]) :: String.t()
+  defp subscribe_message(asset_ids) do
     %{
       operation: "subscribe",
-      assets_ids: [asset_id],
+      assets_ids: asset_ids,
       custom_feature_enabled: @custom_feature_enabled,
       level: @level,
       initial_dump: @initial_dump

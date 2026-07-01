@@ -20,11 +20,12 @@ defmodule PolyBot.Application do
       # Supervises the Polymarket websocket connections opened via
       # `PolyBot.WebSocketManager`. `start_link/0` is arity 0, so it needs an
       # explicit child spec rather than the default `{module, arg}` form.
-      %{
-        id: Polymarket.Supervisor,
-        start: {Polymarket.Supervisor, :start_link, []},
-        type: :supervisor
-      },
+      Polymarket.Supervisor,
+      # %{
+      #   id: Polymarket.WebSocket.SocketSupervisor,
+      #   start: {Polymarket.WebSocket.SocketSupervisor, :start_link, []},
+      #   type: :supervisor
+      # },
       # Start to serve requests, typically the last entry
       PolyBotWeb.Endpoint
     ]
