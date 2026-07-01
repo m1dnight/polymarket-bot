@@ -35,3 +35,4 @@ poly_bot-*.tar
 npm-debug.log
 /assets/node_modules/
 
+.iex.exs
