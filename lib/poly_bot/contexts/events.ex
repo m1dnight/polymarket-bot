@@ -10,9 +10,19 @@ defmodule PolyBot.Contexts.Events do
 
   import Ecto.Query, only: [from: 2]
 
+  alias PolyBot.Contexts.Markets
   alias PolyBot.Contexts.Schemas.Event
   alias PolyBot.Contexts.Schemas.EventPayload
+  alias PolyBot.Contexts.Schemas.Market
   alias PolyBot.Repo
+
+  # On upsert, refresh every column with the latest values Polymarket reported,
+  # except these three: `id` is the surrogate primary key (clobbering it would
+  # break rows that reference the event and re-key it on every sync),
+  # `external_id` is the identity/conflict key, and `inserted_at` must keep its
+  # original first-seen time. Using `replace_all_except` means new columns are
+  # picked up automatically instead of silently going stale.
+  @conflict_preserve [:id, :external_id, :inserted_at]
 
   @doc """
   Return every stored event, newest first.
@@ -78,7 +88,7 @@ defmodule PolyBot.Contexts.Events do
     %Event{}
     |> Event.changeset(attrs)
     |> Repo.insert(
-      on_conflict: {:replace, [:neg_risk, :active, :closed, :archived, :updated_at]},
+      on_conflict: {:replace_all_except, @conflict_preserve},
       conflict_target: :external_id
     )
   end
@@ -86,7 +96,13 @@ defmodule PolyBot.Contexts.Events do
   @doc """
   Upsert a list of event `attrs` maps in a single query — the batch counterpart
   to `upsert_event/1`. Existing events (matched on `external_id`) have their
-  status flags refreshed; new ones are inserted. Returns `{count, nil}`.
+  status flags refreshed; new ones are inserted.
+
+  Returns `{count, rows}`, where `rows` are the upserted events with their
+  surrogate `id` and `external_id` loaded (both for freshly inserted and for
+  conflict-updated rows), so callers can link owned rows — e.g. an event's
+  markets — to each event without a second query. An empty list returns
+  `{0, []}`.
 
   Duplicate `external_id`s within `attrs_list` are collapsed to their first
   occurrence, since Postgres cannot update the same row twice in one upsert.
@@ -94,13 +110,13 @@ defmodule PolyBot.Contexts.Events do
   ## Examples
 
       iex> upsert_events([%{external_id: "1", active: true}, %{external_id: "2", closed: true}])
-      {2, nil}
+      {2, [%Event{id: 1, external_id: "1"}, %Event{id: 2, external_id: "2"}]}
 
       iex> upsert_events([])
-      {0, nil}
+      {0, []}
 
   """
-  @spec upsert_events([map()]) :: {non_neg_integer(), nil}
+  @spec upsert_events([map()]) :: {non_neg_integer(), [Event.t()]}
   def upsert_events(attrs_list) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -110,8 +126,9 @@ defmodule PolyBot.Contexts.Events do
       |> Enum.map(&Map.merge(&1, %{inserted_at: now, updated_at: now}))
 
     Repo.insert_all(Event, rows,
-      on_conflict: {:replace, [:neg_risk, :active, :closed, :archived, :updated_at]},
-      conflict_target: :external_id
+      on_conflict: {:replace_all_except, @conflict_preserve},
+      conflict_target: :external_id,
+      returning: [:id, :external_id]
     )
   end
 
@@ -200,5 +217,45 @@ defmodule PolyBot.Contexts.Events do
       nil -> nil
       payload -> payload.raw
     end
+  end
+
+  @doc """
+  Reconcile the markets owned by the events in `event_ids` against
+  `market_attrs`.
+
+  Upserts every market in `market_attrs` (each carrying its owning `event_id`,
+  via `PolyBot.Contexts.Markets.upsert_markets/1`) and then deletes any market
+  belonging to one of `event_ids` whose `external_id` is absent from
+  `market_attrs` — i.e. the markets Polymarket no longer reports for those
+  events.
+
+  `event_ids` scopes the delete: markets owned by events outside the set are
+  never touched, and an event whose markets have all vanished is still pruned
+  (it simply contributes no `market_attrs`, but stays in `event_ids`). Runs as
+  two batched queries regardless of how many events or markets are involved.
+  Returns `{upserted, deleted}` counts.
+
+  ## Examples
+
+      iex> replace_markets([1, 2], [%{external_id: "0xabc", event_id: 1, active: true}])
+      {1, 3}
+
+      iex> replace_markets([], [])
+      {0, 0}
+
+  """
+  @spec replace_markets([integer()], [map()]) :: {non_neg_integer(), non_neg_integer()}
+  def replace_markets(event_ids, market_attrs) do
+    {upserted, _} = Markets.upsert_markets(market_attrs)
+
+    fresh_external_ids = Enum.map(market_attrs, & &1.external_id)
+
+    {deleted, _} =
+      Repo.delete_all(
+        from m in Market,
+          where: m.event_id in ^event_ids and m.external_id not in ^fresh_external_ids
+      )
+
+    {upserted, deleted}
   end
 end

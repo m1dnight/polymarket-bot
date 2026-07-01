@@ -9,6 +9,14 @@ defmodule PolyBot.Contexts.Markets do
   alias PolyBot.Contexts.Schemas.Market
   alias PolyBot.Repo
 
+  # On upsert, refresh every column with the latest values Polymarket reported,
+  # except these three: `id` is the surrogate primary key (clobbering it would
+  # break rows that reference the market and re-key it on every sync),
+  # `external_id` is the identity/conflict key, and `inserted_at` must keep its
+  # original first-seen time. Using `replace_all_except` means new columns are
+  # picked up automatically instead of silently going stale.
+  @conflict_preserve [:id, :external_id, :inserted_at]
+
   @doc """
   Return every stored market, oldest first.
 
@@ -55,6 +63,61 @@ defmodule PolyBot.Contexts.Markets do
     %Market{}
     |> Market.changeset(attrs)
     |> Repo.insert()
+  end
+
+  @doc """
+  Insert `attrs` as a new market, or update the existing market with the same
+  `external_id` — its owning event and lifecycle/trading flags are refreshed.
+  Lets the periodic fetcher re-see a market without tripping the `external_id`
+  unique constraint.
+
+  ## Examples
+
+      iex> upsert_market(%{external_id: "0xabc", event_id: 42, active: true})
+      {:ok, %Market{}}
+
+  """
+  @spec upsert_market(map()) :: {:ok, Market.t()} | {:error, Ecto.Changeset.t()}
+  def upsert_market(attrs) do
+    %Market{}
+    |> Market.changeset(attrs)
+    |> Repo.insert(
+      on_conflict: {:replace_all_except, @conflict_preserve},
+      conflict_target: :external_id
+    )
+  end
+
+  @doc """
+  Upsert a list of market `attrs` maps in a single query — the batch counterpart
+  to `upsert_market/1`. Existing markets (matched on `external_id`) have their
+  owning event and lifecycle/trading flags refreshed; new ones are inserted.
+  Returns `{count, nil}`.
+
+  Duplicate `external_id`s within `attrs_list` are collapsed to their first
+  occurrence, since Postgres cannot update the same row twice in one upsert.
+
+  ## Examples
+
+      iex> upsert_markets([%{external_id: "0xabc", event_id: 42, active: true}])
+      {1, nil}
+
+      iex> upsert_markets([])
+      {0, nil}
+
+  """
+  @spec upsert_markets([map()]) :: {non_neg_integer(), nil}
+  def upsert_markets(attrs_list) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    rows =
+      attrs_list
+      |> Enum.uniq_by(& &1.external_id)
+      |> Enum.map(&Map.merge(&1, %{inserted_at: now, updated_at: now}))
+
+    Repo.insert_all(Market, rows,
+      on_conflict: {:replace_all_except, @conflict_preserve},
+      conflict_target: :external_id
+    )
   end
 
   @doc """

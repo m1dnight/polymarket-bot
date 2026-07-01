@@ -3,6 +3,7 @@ defmodule PolyBot.EventFetchTest do
 
   alias PolyBot.EventFetch
   alias PolyBot.Contexts.Events
+  alias PolyBot.Contexts.Markets
   alias PolyBot.Support.FakeGamma
   alias PolyBot.Fixtures
 
@@ -59,6 +60,96 @@ defmodule PolyBot.EventFetchTest do
 
       assert EventFetch.sync_events() == 250
       assert length(Events.list_events()) == 250
+    end
+
+    test "stores the markets nested on each event, linked to the owning event" do
+      FakeGamma.set([
+        Fixtures.gamma_event(
+          id: "evt-with-markets",
+          markets: [
+            Fixtures.gamma_market(id: "mkt-a", active: true, outcomes: ["Yes", "No"]),
+            Fixtures.gamma_market(id: "mkt-b", closed: true)
+          ]
+        )
+      ])
+
+      assert EventFetch.sync_events() == 1
+
+      assert [event] = Events.list_events()
+      markets = Markets.list_markets()
+
+      assert length(markets) == 2
+      assert Enum.all?(markets, &(&1.event_id == event.id))
+
+      external_ids = markets |> Enum.map(& &1.external_id) |> Enum.sort()
+      assert external_ids == ["mkt-a", "mkt-b"]
+
+      mkt_a = Enum.find(markets, &(&1.external_id == "mkt-a"))
+      assert mkt_a.active == true
+      assert mkt_a.outcomes == ["Yes", "No"]
+    end
+
+    test "persists no markets for an event that has none" do
+      FakeGamma.set([Fixtures.gamma_event(id: "no-markets")])
+
+      assert EventFetch.sync_events() == 1
+      assert Markets.list_markets() == []
+    end
+
+    test "re-syncing refreshes existing markets instead of duplicating them" do
+      FakeGamma.set([
+        Fixtures.gamma_event(id: "e", markets: [Fixtures.gamma_market(id: "m", closed: false)])
+      ])
+
+      assert EventFetch.sync_events() == 1
+
+      FakeGamma.set([
+        Fixtures.gamma_event(id: "e", markets: [Fixtures.gamma_market(id: "m", closed: true)])
+      ])
+
+      assert EventFetch.sync_events() == 1
+
+      assert [market] = Markets.list_markets()
+      assert market.external_id == "m"
+      assert market.closed == true
+    end
+
+    test "prunes markets an event no longer reports on the next sync" do
+      FakeGamma.set([
+        Fixtures.gamma_event(
+          id: "e",
+          markets: [Fixtures.gamma_market(id: "m1"), Fixtures.gamma_market(id: "m2")]
+        )
+      ])
+
+      assert EventFetch.sync_events() == 1
+      assert length(Markets.list_markets()) == 2
+
+      # m2 is gone from the event's payload on the next sync.
+      FakeGamma.set([Fixtures.gamma_event(id: "e", markets: [Fixtures.gamma_market(id: "m1")])])
+
+      assert EventFetch.sync_events() == 1
+
+      external_ids = Markets.list_markets() |> Enum.map(& &1.external_id)
+      assert external_ids == ["m1"]
+    end
+
+    test "does not prune markets of events absent from the current sync" do
+      FakeGamma.set([
+        Fixtures.gamma_event(id: "a", markets: [Fixtures.gamma_market(id: "ma")]),
+        Fixtures.gamma_event(id: "b", markets: [Fixtures.gamma_market(id: "mb")])
+      ])
+
+      assert EventFetch.sync_events() == 2
+      assert length(Markets.list_markets()) == 2
+
+      # A later sync only sees event "a"; event "b"'s market must survive.
+      FakeGamma.set([Fixtures.gamma_event(id: "a", markets: [Fixtures.gamma_market(id: "ma")])])
+
+      assert EventFetch.sync_events() == 1
+
+      external_ids = Markets.list_markets() |> Enum.map(& &1.external_id) |> Enum.sort()
+      assert external_ids == ["ma", "mb"]
     end
 
     test "forwards opts to the gamma client's stream_events/1" do

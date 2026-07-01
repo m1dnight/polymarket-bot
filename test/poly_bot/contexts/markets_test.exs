@@ -99,6 +99,100 @@ defmodule PolyBot.Contexts.MarketsTest do
     end
   end
 
+  describe "upsert_market/1" do
+    test "inserts a new market" do
+      event = Fixtures.event_fixture()
+
+      attrs = %{
+        external_id: "up-mkt-#{System.unique_integer([:positive])}",
+        event_id: event.id,
+        active: true,
+        closed: false
+      }
+
+      assert {:ok, %Market{} = market} = Markets.upsert_market(attrs)
+      assert market.external_id == attrs.external_id
+      assert market.event_id == event.id
+    end
+
+    test "refreshes flags on conflict with an existing external_id, keeping the row" do
+      market =
+        Fixtures.market_fixture(%{
+          external_id: "up-conflict",
+          closed: false,
+          accepting_orders: true
+        })
+
+      assert {:ok, %Market{} = updated} =
+               Markets.upsert_market(%{
+                 external_id: "up-conflict",
+                 event_id: market.event_id,
+                 closed: true,
+                 accepting_orders: false
+               })
+
+      assert updated.id == market.id
+      assert updated.closed == true
+      assert updated.accepting_orders == false
+      assert length(Markets.list_markets()) == 1
+    end
+  end
+
+  describe "upsert_markets/1" do
+    test "returns {0, nil} for an empty list" do
+      assert {0, nil} = Markets.upsert_markets([])
+    end
+
+    test "inserts multiple markets and returns the count" do
+      event = Fixtures.event_fixture()
+
+      assert {2, nil} =
+               Markets.upsert_markets([
+                 %{external_id: "bm-1", event_id: event.id, active: true},
+                 %{external_id: "bm-2", event_id: event.id, closed: true}
+               ])
+
+      external_ids = Markets.list_markets() |> Enum.map(& &1.external_id) |> Enum.sort()
+      assert external_ids == ["bm-1", "bm-2"]
+    end
+
+    test "dedups duplicate external_ids within the list, first occurrence wins" do
+      event = Fixtures.event_fixture()
+
+      assert {1, nil} =
+               Markets.upsert_markets([
+                 %{external_id: "bm-dup", event_id: event.id, active: true},
+                 %{external_id: "bm-dup", event_id: event.id, active: false}
+               ])
+
+      market = Enum.find(Markets.list_markets(), &(&1.external_id == "bm-dup"))
+      assert market.active == true
+    end
+
+    test "refreshes flags on conflict with an existing row" do
+      market = Fixtures.market_fixture(%{external_id: "bm-conflict", closed: false})
+
+      assert {1, nil} =
+               Markets.upsert_markets([
+                 %{external_id: "bm-conflict", event_id: market.event_id, closed: true}
+               ])
+
+      refreshed = Markets.get_market!(market.id)
+      assert refreshed.closed == true
+      assert length(Markets.list_markets()) == 1
+    end
+
+    test "sets timestamps on inserted rows" do
+      event = Fixtures.event_fixture()
+
+      assert {1, nil} = Markets.upsert_markets([%{external_id: "bm-ts", event_id: event.id}])
+
+      market = Enum.find(Markets.list_markets(), &(&1.external_id == "bm-ts"))
+      assert market.inserted_at
+      assert market.updated_at
+    end
+  end
+
   describe "update_market/2" do
     test "updates a market with valid attrs" do
       market = Fixtures.market_fixture(%{accepting_orders: true})

@@ -17,6 +17,14 @@ defmodule PolyBot.Application do
       {Phoenix.PubSub, name: PolyBot.PubSub},
       # Periodically fetches Polymarket events into the database.
       {EventFetch.Worker, Parameters.event_fetch_worker_opts()},
+      # Supervises the Polymarket websocket connections opened via
+      # `PolyBot.WebSocketManager`. `start_link/0` is arity 0, so it needs an
+      # explicit child spec rather than the default `{module, arg}` form.
+      %{
+        id: Polymarket.Supervisor,
+        start: {Polymarket.Supervisor, :start_link, []},
+        type: :supervisor
+      },
       # Start to serve requests, typically the last entry
       PolyBotWeb.Endpoint
     ]

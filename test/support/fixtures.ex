@@ -49,7 +49,8 @@ defmodule PolyBot.Fixtures do
 
   @doc """
   Build a `Polymarket.Schemas.Event` struct (the Gamma API shape) for feeding
-  `PolyBot.Support.FakeGamma`. Only the fields `PolyBot.EventFetch` reads are set.
+  `PolyBot.Support.FakeGamma`. Only the fields `PolyBot.EventFetch` reads are
+  set. Pass `markets: [gamma_market(...)]` to nest markets under the event.
   """
   @spec gamma_event(keyword()) :: Polymarket.Schemas.Event.t()
   def gamma_event(attrs \\ []) do
@@ -62,5 +63,25 @@ defmodule PolyBot.Fixtures do
     ]
 
     struct(Polymarket.Schemas.Event, Keyword.merge(defaults, attrs))
+  end
+
+  @doc """
+  Build a `Polymarket.Schemas.Market` struct (the Gamma API shape) for nesting
+  under `gamma_event/1`. Only the fields `PolyBot.EventFetch` reads are set.
+  """
+  @spec gamma_market(keyword()) :: Polymarket.Schemas.Market.t()
+  def gamma_market(attrs \\ []) do
+    defaults = [
+      id: "gamma-mkt-#{System.unique_integer([:positive])}",
+      enable_order_book: true,
+      active: true,
+      closed: false,
+      accepting_orders: true,
+      uma_resolution_status: nil,
+      clob_token_ids: ["tok-yes", "tok-no"],
+      outcomes: ["Yes", "No"]
+    ]
+
+    struct(Polymarket.Schemas.Market, Keyword.merge(defaults, attrs))
   end
 end
