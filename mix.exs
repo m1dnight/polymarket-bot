@@ -11,7 +11,23 @@ defmodule PolyBot.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      test_coverage: [ignore_modules: coverage_ignore()]
+    ]
+  end
+
+  # Modules excluded from `mix test --cover`: the thin Phoenix web layer, OTP
+  # framework glue, and test-only support modules — none carry business logic
+  # worth a coverage target. What remains is `lib/poly_bot` (contexts, schemas,
+  # event fetch, config, parameters).
+  defp coverage_ignore do
+    [
+      ~r/^PolyBotWeb/,
+      PolyBot.Application,
+      PolyBot.Repo,
+      PolyBot.DataCase,
+      PolyBot.Fixtures,
+      ~r/^PolyBot\.Support\./
     ]
   end
 

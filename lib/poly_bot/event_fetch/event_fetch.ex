@@ -37,7 +37,7 @@ defmodule PolyBot.EventFetch do
   @spec sync_events(keyword()) :: non_neg_integer()
   def sync_events(opts \\ []) do
     opts
-    |> Polymarket.Gamma.stream_events()
+    |> gamma_client().stream_events()
     |> Stream.map(&attrs/1)
     |> Stream.chunk_every(100)
     |> Stream.map(&Events.upsert_events/1)
@@ -47,6 +47,11 @@ defmodule PolyBot.EventFetch do
   # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
+
+  # The Gamma client module. Defaults to `Polymarket.Gamma`; overridable via the
+  # `:gamma_client` app env so tests can inject a stub instead of hitting the API.
+  @spec gamma_client() :: module()
+  defp gamma_client, do: Application.get_env(:poly_bot, :gamma_client, Polymarket.Gamma)
 
   # maps which fields we take from the polymarket event. we do not care about
   # all the data that comes from polymarket.
