@@ -83,7 +83,7 @@ defmodule PolyBot.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:ex_polymarket, path: "/Users/christophe/Documents/Code/elixir/polymarket_websocket"}
+      {:ex_polymarket, path: "../polymarket_websocket"}
     ]
   end
 
