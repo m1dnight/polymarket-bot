@@ -26,6 +26,10 @@ defmodule PolyBotWeb.Telemetry do
       counter("poly_bot.websocket.connect.count"),
       counter("poly_bot.websocket.disconnect.count"),
       sum("poly_bot.websocket.subscribe.count"),
+      # assets parked after a disconnect vs. resubscribed; the difference is
+      # how many are currently outstanding.
+      sum("poly_bot.websocket.park.count"),
+      sum("poly_bot.websocket.restore.count"),
       # Phoenix Metrics
       summary("phoenix.endpoint.start.system_time",
         unit: {:native, :millisecond}

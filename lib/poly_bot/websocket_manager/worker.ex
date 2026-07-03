@@ -273,6 +273,13 @@ defmodule PolyBot.WebSocketManager.Worker do
     case pool_try_subscribe_assets(state, MapSet.to_list(state.pending_assets)) do
       # all assets were sucessfully subscribed to.
       {:ok, state} ->
+        # fire an event to log that the parked assets were resubscribed.
+        :telemetry.execute(
+          [:poly_bot, :websocket, :restore],
+          %{count: MapSet.size(state.pending_assets)},
+          %{}
+        )
+
         {:noreply, %{state | pending_assets: MapSet.new(), retry_attempt: 0}}
 
       # failed to subscribe to all the assets.
@@ -424,6 +431,14 @@ defmodule PolyBot.WebSocketManager.Worker do
   defp schedule_restore(state, assets) do
     # list of all assets that are not subscribed to at this moment.
     pending = MapSet.union(state.pending_assets, assets)
+    parked = MapSet.size(pending) - MapSet.size(state.pending_assets)
+
+    if parked > 0 do
+      # fire an event to log that assets were parked for resubscription.
+      :telemetry.execute([:poly_bot, :websocket, :park], %{count: parked}, %{
+        pending_assets: MapSet.size(pending)
+      })
+    end
 
     cond do
       # no assets to retry
