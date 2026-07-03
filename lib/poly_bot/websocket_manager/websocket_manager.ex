@@ -13,6 +13,7 @@ defmodule PolyBot.WebSocketManager do
   """
 
   alias Polymarket.WebSocket
+  alias PolyBot.WebSocketManager.Handler
   alias Polymarket.WebSocket.SocketSupervisor
 
   # Constants for the CLOB market-channel `subscribe` operation. These mirror the
@@ -40,7 +41,7 @@ defmodule PolyBot.WebSocketManager do
   """
   @spec connect() :: DynamicSupervisor.on_start_child()
   def connect do
-    SocketSupervisor.add_connection(handler: PolyBot.Handler)
+    SocketSupervisor.add_connection(handler: Handler)
   end
 
   @doc """

@@ -45,3 +45,7 @@ config :phoenix,
 config :poly_bot, :event_fetcher,
   minimum_liquidity: 10_000,
   interval_ms: 0
+
+# The websocket worker only opens connections when subscribe/2 is called, so
+# the singleton stays off the network in tests.
+config :poly_bot, :websocket_manager, max_assets_per_connection: 100

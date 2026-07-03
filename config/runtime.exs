@@ -36,6 +36,11 @@ if config_env() != :test do
     minimum_liquidity: optional("EVENT_FETCHER_MINIMUM_LIQUIDITY", :integer, 10_000),
     # delay between fetches, in ms; 0 (or less) disables polling entirely
     interval_ms: optional("EVENT_FETCHER_INTERVAL_MS", :integer, :timer.minutes(5))
+
+  config :poly_bot, :websocket_manager,
+    # subscription capacity of a single websocket connection; the worker opens
+    # a new connection once all existing ones are full
+    max_assets_per_connection: optional("WEBSOCKET_MAX_ASSETS_PER_CONNECTION", :integer, 100)
 end
 
 if config_env() == :prod do

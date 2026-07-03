@@ -7,6 +7,7 @@ defmodule PolyBot.Application do
 
   alias PolyBot.EventFetch
   alias PolyBot.Parameters
+  alias PolyBot.WebSocketManager
 
   @impl true
   def start(_type, _args) do
@@ -21,11 +22,9 @@ defmodule PolyBot.Application do
       # `PolyBot.WebSocketManager`. `start_link/0` is arity 0, so it needs an
       # explicit child spec rather than the default `{module, arg}` form.
       Polymarket.Supervisor,
-      # %{
-      #   id: Polymarket.WebSocket.SocketSupervisor,
-      #   start: {Polymarket.WebSocket.SocketSupervisor, :start_link, []},
-      #   type: :supervisor
-      # },
+      # Routes asset subscriptions across the websocket connections; opens them
+      # via the SocketSupervisor above, so it must start after it.
+      {WebSocketManager.Worker, Parameters.websocket_worker_opts()},
       # Start to serve requests, typically the last entry
       PolyBotWeb.Endpoint
     ]

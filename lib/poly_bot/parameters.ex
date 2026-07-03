@@ -4,7 +4,8 @@ defmodule PolyBot.Parameters do
 
   `event_fetch_worker_opts/0` builds the arguments for
   `PolyBot.EventFetch.Worker`; `event_fetch_opts/0` builds the Gamma query
-  filters those fetches use.
+  filters those fetches use. `websocket_worker_opts/0` builds the arguments
+  for `PolyBot.WebSocketManager.Worker`.
   """
 
   @typedoc """
@@ -66,12 +67,35 @@ defmodule PolyBot.Parameters do
     |> add_if_not_infinity(:liquidity_min, minimum_liquidity())
   end
 
+  @doc """
+  Builds the argument keyword-list for `PolyBot.WebSocketManager.Worker`.
+
+  Bundles the config-driven `:max_assets_per_connection`, the subscription
+  capacity of a single websocket connection.
+
+  ## Examples
+
+      iex> websocket_worker_opts()
+      [max_assets_per_connection: 100]
+
+  """
+  @spec websocket_worker_opts :: PolyBot.WebSocketManager.Worker.opts()
+  def websocket_worker_opts do
+    [max_assets_per_connection: max_assets_per_connection()]
+  end
+
   # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
 
   @spec interval_ms :: non_neg_integer()
   defp interval_ms, do: event_fetcher_env(:interval_ms)
+
+  @spec max_assets_per_connection :: pos_integer()
+  defp max_assets_per_connection do
+    Application.fetch_env!(:poly_bot, :websocket_manager)
+    |> Keyword.fetch!(:max_assets_per_connection)
+  end
 
   @spec minimum_liquidity :: integer()
   defp minimum_liquidity, do: event_fetcher_env(:minimum_liquidity)
