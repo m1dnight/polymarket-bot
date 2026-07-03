@@ -141,7 +141,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   """
   @spec sockets(GenServer.server()) :: sockets()
   def sockets(server \\ __MODULE__) do
-    GenServer.call(server, :sockets)
+    GenServer.call(server, :sockets, :infinity)
   end
 
   # ---------------------------------------------------------------------------#

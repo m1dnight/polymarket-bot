@@ -46,6 +46,10 @@ if config_env() != :test do
     retry_base_ms: optional("WEBSOCKET_RETRY_BASE_MS", :integer, 1_000),
     # ceiling for the restore retry delay, in ms
     retry_max_ms: optional("WEBSOCKET_RETRY_MAX_MS", :integer, 30_000)
+
+  config :poly_bot, :dashboard,
+    # interval between dashboard stat refreshes, in ms
+    refresh_ms: optional("DASHBOARD_REFRESH_MS", :integer, 5_000)
 end
 
 if config_env() == :prod do

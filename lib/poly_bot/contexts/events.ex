@@ -39,6 +39,20 @@ defmodule PolyBot.Contexts.Events do
   end
 
   @doc """
+  Return the number of stored events, as a single `count(*)` query.
+
+  ## Examples
+
+      iex> count_events()
+      42
+
+  """
+  @spec count_events() :: non_neg_integer()
+  def count_events do
+    Repo.aggregate(Event, :count)
+  end
+
+  @doc """
   Fetch the event with `id`, raising `Ecto.NoResultsError` if absent.
 
   ## Examples

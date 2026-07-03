@@ -19,6 +19,19 @@ defmodule PolyBot.Contexts.MarketsTest do
     end
   end
 
+  describe "count_markets/0" do
+    test "returns 0 when there are no markets" do
+      assert Markets.count_markets() == 0
+    end
+
+    test "returns the number of stored markets" do
+      Fixtures.market_fixture()
+      Fixtures.market_fixture()
+
+      assert Markets.count_markets() == 2
+    end
+  end
+
   describe "get_market!/1" do
     test "returns the market with the given id" do
       market = Fixtures.market_fixture()

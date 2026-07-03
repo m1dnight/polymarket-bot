@@ -21,6 +21,19 @@ defmodule PolyBot.Contexts.EventsTest do
     end
   end
 
+  describe "count_events/0" do
+    test "returns 0 when there are no events" do
+      assert Events.count_events() == 0
+    end
+
+    test "returns the number of stored events" do
+      Fixtures.event_fixture()
+      Fixtures.event_fixture()
+
+      assert Events.count_events() == 2
+    end
+  end
+
   describe "get_event!/1" do
     test "returns the event with the given id" do
       event = Fixtures.event_fixture()

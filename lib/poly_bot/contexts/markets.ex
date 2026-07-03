@@ -32,6 +32,20 @@ defmodule PolyBot.Contexts.Markets do
   end
 
   @doc """
+  Return the number of stored markets, as a single `count(*)` query.
+
+  ## Examples
+
+      iex> count_markets()
+      42
+
+  """
+  @spec count_markets() :: non_neg_integer()
+  def count_markets do
+    Repo.aggregate(Market, :count)
+  end
+
+  @doc """
   Fetch the market with `id`, raising `Ecto.NoResultsError` if absent.
 
   ## Examples

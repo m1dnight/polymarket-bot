@@ -5,7 +5,8 @@ defmodule PolyBot.Parameters do
   `event_fetch_worker_opts/0` builds the arguments for
   `PolyBot.EventFetch.Worker`; `event_fetch_opts/0` builds the Gamma query
   filters those fetches use. `websocket_worker_opts/0` builds the arguments
-  for `PolyBot.WebSocketManager.Worker`.
+  for `PolyBot.WebSocketManager.Worker`. `dashboard_refresh_ms/0` is the
+  refresh interval of `PolyBotWeb.DashboardLive`.
   """
 
   @typedoc """
@@ -88,6 +89,20 @@ defmodule PolyBot.Parameters do
       retry_max_ms: websocket_manager_env(:retry_max_ms)
     ]
   end
+
+  @doc """
+  The config-driven interval between dashboard stat refreshes, in milliseconds.
+
+  ## Examples
+
+      iex> dashboard_refresh_ms()
+      5000
+
+  """
+  @spec dashboard_refresh_ms :: pos_integer()
+  def dashboard_refresh_ms do
+    Application.fetch_env!(:poly_bot, :dashboard)
+    |> Keyword.fetch!(:refresh_ms)
   end
 
   # ---------------------------------------------------------------------------#

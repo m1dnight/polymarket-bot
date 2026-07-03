@@ -1,0 +1,18 @@
+<Layouts.app flash={@flash}>
+  <section id="event-store-stats" class="space-y-2">
+    <h2 class="text-sm font-semibold">Event store</h2>
+    <div class="grid grid-cols-2 gap-4">
+      <.stat id="stat-events" label="Events" value={format_int(@event_count)} />
+      <.stat id="stat-markets" label="Markets" value={format_int(@market_count)} />
+    </div>
+  </section>
+
+  <section id="websocket-stats" class="space-y-2">
+    <h2 class="text-sm font-semibold">Websocket</h2>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <.stat id="stat-connections" label="Connections" value={@connection_count} />
+      <.stat id="stat-avg-lifespan" label="Avg lifespan" value={format_duration(@avg_lifespan)} />
+      <.stat id="stat-avg-assets" label="Avg assets / connection" value={@avg_assets || "–"} />
+    </div>
+  </section>
+</Layouts.app>

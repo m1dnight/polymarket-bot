@@ -52,3 +52,5 @@ config :poly_bot, :websocket_manager,
   max_assets_per_connection: 100,
   retry_base_ms: 1_000,
   retry_max_ms: 30_000
+
+config :poly_bot, :dashboard, refresh_ms: 5_000
