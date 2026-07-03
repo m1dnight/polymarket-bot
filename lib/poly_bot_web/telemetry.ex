@@ -25,7 +25,7 @@ defmodule PolyBotWeb.Telemetry do
       # how often disconnects happen
       counter("poly_bot.websocket.connect.count"),
       counter("poly_bot.websocket.disconnect.count"),
-      counter("poly_bot.websocket.subscribe.count"),
+      sum("poly_bot.websocket.subscribe.count"),
       # Phoenix Metrics
       summary("phoenix.endpoint.start.system_time",
         unit: {:native, :millisecond}
