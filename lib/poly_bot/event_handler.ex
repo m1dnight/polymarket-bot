@@ -5,7 +5,9 @@ defmodule PolyBot.EventHandler do
   """
 
   alias PolyBot.Contexts.EventLog
+  alias PolyBot.Contexts.Schemas.EventLine
 
+  @spec attach() :: :ok | {:error, :already_exists}
   def attach do
     :telemetry.attach_many(
       "websocket-logger",
@@ -20,6 +22,8 @@ defmodule PolyBot.EventHandler do
     )
   end
 
+  @spec handle_event([atom()], map(), map(), term()) ::
+          {:ok, EventLine.t()} | {:error, Ecto.Changeset.t()}
   def handle_event(name, measurements, metadata, _config) do
     EventLog.log_event(inspect(name), measurements, metadata)
   end

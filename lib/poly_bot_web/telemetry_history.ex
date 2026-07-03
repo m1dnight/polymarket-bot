@@ -41,6 +41,7 @@ defmodule PolyBotWeb.TelemetryHistory do
   @doc false
   # telemetry handler: runs in the emitting process, so extract the datapoint
   # there (exactly like LiveDashboard's own listener) and only cast a hit.
+  @spec handle_event([atom()], map(), map(), Telemetry.Metrics.t()) :: :ok | nil
   def handle_event(_event_name, measurements, metadata, metric) do
     if datapoint = TelemetryListener.extract_datapoint_for_metric(metric, measurements, metadata) do
       GenServer.cast(__MODULE__, {:datapoint, metric.name, datapoint})

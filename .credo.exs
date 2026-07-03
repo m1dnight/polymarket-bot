@@ -161,7 +161,21 @@
           {Credo.Check.Warning.UnusedRegexOperation, []},
           {Credo.Check.Warning.UnusedStringOperation, []},
           {Credo.Check.Warning.UnusedTupleOperation, []},
-          {Credo.Check.Warning.WrongTestFilename, []}
+          {Credo.Check.Warning.WrongTestFilename, []},
+          # Only our own modules need specs; Phoenix-generated boilerplate is
+          # excluded from this check.
+          {Credo.Check.Readability.Specs,
+           [
+             files: %{
+               excluded: [
+                 "lib/poly_bot_web.ex",
+                 "lib/poly_bot_web/components/",
+                 "lib/poly_bot_web/controllers/",
+                 "lib/poly_bot_web/telemetry.ex",
+                 "test/support/data_case.ex"
+               ]
+             }
+           ]}
         ],
         disabled: [
           #
@@ -186,7 +200,6 @@
           {Credo.Check.Readability.SeparateAliasRequire, []},
           {Credo.Check.Readability.SingleFunctionToBlockPipe, []},
           {Credo.Check.Readability.SinglePipe, []},
-          {Credo.Check.Readability.Specs, []},
           {Credo.Check.Readability.StrictModuleLayout, []},
           {Credo.Check.Readability.WithCustomTaggedTuple, []},
           {Credo.Check.Refactor.ABCSize, []},
