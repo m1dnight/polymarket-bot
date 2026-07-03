@@ -8,13 +8,14 @@ defmodule PolyBotWeb.Telemetry do
 
   @impl true
   def init(_arg) do
-    children = [
-      # Telemetry poller will execute the given period measurements
-      # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
-      {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-      # Add reporters as children of your supervision tree.
-      # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
-    ]
+    children =
+      [
+        # Telemetry poller will execute the given period measurements
+        # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
+        {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
+        # Add reporters as children of your supervision tree.
+        # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
+      ] ++ history_child()
 
     Supervisor.init(children, strategy: :one_for_one)
   end
@@ -79,8 +80,21 @@ defmodule PolyBotWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # how often disconnects happen
+      counter("poly_bot.websocket.connect.count"),
+      counter("poly_bot.websocket.disconnect.count")
     ]
+  end
+
+  # buffers chart history for LiveDashboard, which is only mounted in dev.
+  defp history_child do
+    if Application.get_env(:poly_bot, :dev_routes) do
+      [{PolyBotWeb.TelemetryHistory, metrics()}]
+    else
+      []
+    end
   end
 
   defp periodic_measurements do

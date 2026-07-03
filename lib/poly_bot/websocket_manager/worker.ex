@@ -311,7 +311,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   @spec socket_add(t()) :: {:ok, socket_state()} | {:error, term()}
   defp socket_add(state) do
     # fire an event to log that a websocket was created.
-    :telemetry.execute([:poly_bot, :websocket, :connect], %{}, %{})
+    :telemetry.execute([:poly_bot, :websocket, :connect], %{count: 1}, %{})
 
     case state.connect_fn.() do
       {:ok, socket} ->
@@ -336,9 +336,10 @@ defmodule PolyBot.WebSocketManager.Worker do
     now = DateTime.utc_now()
     lifespan = DateTime.diff(now, socket.created, :minute)
 
-    :telemetry.execute([:poly_bot, :websocket, :disconnect], %{}, %{
+    :telemetry.execute([:poly_bot, :websocket, :disconnect], %{count: 1}, %{
       lifespan: lifespan,
-      reason: reason
+      reason: reason,
+      asset_size: MapSet.size(socket.assets)
     })
 
     Logger.warning("""

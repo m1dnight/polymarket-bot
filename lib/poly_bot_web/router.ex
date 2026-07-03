@@ -38,7 +38,10 @@ defmodule PolyBotWeb.Router do
     scope "/dev" do
       pipe_through :browser
 
-      live_dashboard "/dashboard", metrics: PolyBotWeb.Telemetry
+      live_dashboard "/dashboard",
+        metrics: PolyBotWeb.Telemetry,
+        metrics_history: {PolyBotWeb.TelemetryHistory, :metrics_history, []}
+
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
