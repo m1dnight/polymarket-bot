@@ -16,4 +16,25 @@
       <.stat id="stat-pending-assets" label="Pending resubscribe" value={@pending_asset_count} />
     </div>
   </section>
+
+  <section id="disconnect-stats" class="space-y-2">
+    <h2 class="text-sm font-semibold">Disconnect history</h2>
+    <div class="grid grid-cols-3 gap-4">
+      <.stat
+        id="stat-lifespan-min"
+        label="Min lifespan"
+        value={format_minutes(@lifespan_stats.min)}
+      />
+      <.stat
+        id="stat-lifespan-avg"
+        label="Avg lifespan"
+        value={format_minutes(@lifespan_stats.avg)}
+      />
+      <.stat
+        id="stat-lifespan-max"
+        label="Max lifespan"
+        value={format_minutes(@lifespan_stats.max)}
+      />
+    </div>
+  </section>
 </Layouts.app>

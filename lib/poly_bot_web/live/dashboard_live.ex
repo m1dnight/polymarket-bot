@@ -1,8 +1,8 @@
 defmodule PolyBotWeb.DashboardLive do
   @moduledoc """
-  Minimal operational dashboard for the bot: database counts (events, markets)
-  and aggregate websocket pool stats, refreshed every
-  `PolyBot.Parameters.dashboard_refresh_ms/0`.
+  Minimal operational dashboard for the bot: database counts (events, markets),
+  aggregate websocket pool stats and historical disconnect lifespans, refreshed
+  every `PolyBot.Parameters.dashboard_refresh_ms/0`.
 
   The pool read can stall behind an in-flight subscribe on the worker, so it is
   fetched with `start_async/3` — the database tiles keep refreshing and the
@@ -13,6 +13,7 @@ defmodule PolyBotWeb.DashboardLive do
 
   require Logger
 
+  alias PolyBot.Contexts.EventLog
   alias PolyBot.Contexts.Events
   alias PolyBot.Contexts.Markets
   alias PolyBot.Parameters
@@ -84,7 +85,8 @@ defmodule PolyBotWeb.DashboardLive do
     socket
     |> assign(
       event_count: Events.count_events(),
-      market_count: Markets.count_markets()
+      market_count: Markets.count_markets(),
+      lifespan_stats: EventLog.websocket_lifespan_stats()
     )
     |> refresh_sockets()
   end
@@ -137,4 +139,9 @@ defmodule PolyBotWeb.DashboardLive do
   defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
   defp format_duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
   defp format_duration(seconds), do: "#{div(seconds, 3600)}h #{seconds |> rem(3600) |> div(60)}m"
+
+  # Historical lifespans are stored in whole minutes; reuse the seconds-based
+  # duration formatter so the display units match the live pool tiles.
+  defp format_minutes(nil), do: "–"
+  defp format_minutes(minutes), do: format_duration(round(minutes * 60))
 end

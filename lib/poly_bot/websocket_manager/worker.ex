@@ -64,6 +64,31 @@ defmodule PolyBot.WebSocketManager.Worker do
           pending_asset_count: non_neg_integer()
         }
 
+  @typedoc """
+  Injected functions that operate on a single websocket connection, threaded
+  through the socket helpers.
+
+    * `:connect_fn` - opens a new connection.
+    * `:subscribe_fn` - subscribes a connection to a list of asset ids.
+  """
+  @type socket_options :: %{
+          connect_fn: (-> DynamicSupervisor.on_start_child()),
+          subscribe_fn: (pid(), [asset_id()] -> :ok)
+        }
+
+  @typedoc """
+  Everything the pool helpers need: the per-connection subscription capacity
+  plus the `t:socket_options/0` used to open and subscribe connections.
+
+    * `:conn_cap` - subscription capacity of a single connection.
+    * `:socket_options` - the socket-level operations, forwarded to the socket
+      helpers.
+  """
+  @type pool_options :: %{
+          conn_cap: pos_integer(),
+          socket_options: socket_options()
+        }
+
   typedstruct do
     @typedoc """
     The worker state.
@@ -71,26 +96,26 @@ defmodule PolyBot.WebSocketManager.Worker do
       * `:sockets` - the connection pool, keyed by connection pid.
       * `:subscribed_assets` - the union of all live connections' assets, used
         to skip ids that are already subscribed.
-      * `:conn_cap` - subscription capacity of a single
-        connection.
+      * `:pool_options` - the `t:pool_options/0` threaded through the pool
+        helpers (per-connection capacity plus the nested `:socket_options`).
+      * `:socket_options` - the `t:socket_options/0` threaded through the
+        socket helpers (the injected connect/subscribe functions).
       * `:pending_assets` - assets of dead connections awaiting resubscription.
       * `:retry_attempt` - consecutive failed restore attempts.
       * `:retry_ref` - timer of the scheduled restore, if any.
       * `:retry_base_ms` / `:retry_max_ms` - restore backoff bounds.
-      * `:connect_fn` / `:subscribe_fn` / `:assets_fn` - see
-        `t:opts/0`.
+      * `:assets_fn` - see `t:opts/0`.
     """
 
     field :sockets, sockets(), default: %{}
     field :subscribed_assets, MapSet.t(asset_id()), default: MapSet.new()
-    field :conn_cap, pos_integer(), default: @default_conn_cap
+    field :pool_options, pool_options()
+    field :socket_options, socket_options()
     field :pending_assets, MapSet.t(asset_id()), default: MapSet.new()
     field :retry_attempt, non_neg_integer(), default: 0
     field :retry_ref, reference() | nil, default: nil
     field :retry_base_ms, pos_integer(), default: @default_retry_base_ms
     field :retry_max_ms, pos_integer(), default: @default_retry_max_ms
-    field :connect_fn, (-> DynamicSupervisor.on_start_child())
-    field :subscribe_fn, (pid(), [asset_id()] -> :ok)
     field :assets_fn, (-> [asset_id()])
   end
 
@@ -193,12 +218,19 @@ defmodule PolyBot.WebSocketManager.Worker do
     # subscribe to events about events being refreshed
     PubSub.subscribe(PolyBot.PubSub, "events:refreshed")
 
+    socket_options = %{
+      connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
+      subscribe_fn: Keyword.get(opts, :subscribe_fn, &WebSocketManager.subscribe/2)
+    }
+
     state = %__MODULE__{
-      conn_cap: Keyword.get(opts, :conn_cap, @default_conn_cap),
+      pool_options: %{
+        conn_cap: Keyword.get(opts, :conn_cap, @default_conn_cap),
+        socket_options: socket_options
+      },
+      socket_options: socket_options,
       retry_base_ms: Keyword.get(opts, :retry_base_ms, @default_retry_base_ms),
       retry_max_ms: Keyword.get(opts, :retry_max_ms, @default_retry_max_ms),
-      connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
-      subscribe_fn: Keyword.get(opts, :subscribe_fn, &WebSocketManager.subscribe/2),
       assets_fn: Keyword.get(opts, :assets_fn, fn -> [] end)
     }
 
@@ -363,10 +395,8 @@ defmodule PolyBot.WebSocketManager.Worker do
     pool_try_subscribe_assets(
       Map.values(state.sockets),
       available_cap,
-      state.conn_cap,
       asset_ids,
-      state.connect_fn,
-      state.subscribe_fn
+      state.pool_options
     )
   end
 
@@ -381,7 +411,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # returns the total available capacity for the pool of sockets
   defp pool_available_capacity(state) do
-    total_cap = Enum.count(state.sockets) * state.conn_cap
+    total_cap = Enum.count(state.sockets) * state.pool_options.conn_cap
     used_cap = MapSet.size(state.subscribed_assets)
     total_cap - used_cap
   end
@@ -394,14 +424,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   # returning the updated state. When opening a connection fails no ids are
   # subscribed, but the connections opened before the failure are kept in the
   # pool so a later attempt reuses them.
-  defp pool_try_subscribe_assets(
-         sockets,
-         available_cap,
-         conn_cap,
-         asset_ids,
-         connect_fn,
-         subscribe_fn
-       ) do
+  defp pool_try_subscribe_assets(sockets, available_cap, asset_ids, pool_options) do
     # total capacity required for this list of asset ids.
     required_cap = Enum.count(asset_ids)
 
@@ -409,9 +432,9 @@ defmodule PolyBot.WebSocketManager.Worker do
     # in the available cap.
     missing_cap = max(0, required_cap - available_cap)
 
-    case pool_ensure_capacity(sockets, missing_cap, conn_cap, connect_fn) do
+    case pool_ensure_capacity(sockets, missing_cap, pool_options) do
       {:ok, sockets} ->
-        sockets = pool_subscribe(asset_ids, sockets, conn_cap, subscribe_fn)
+        sockets = pool_subscribe(asset_ids, sockets, pool_options)
         {:ok, sockets}
 
       {:error, reason, sockets} ->
@@ -420,36 +443,36 @@ defmodule PolyBot.WebSocketManager.Worker do
   end
 
   # no asset ids
-  defp pool_subscribe([], sockets, _conn_cap, _subscribe_fn) do
+  defp pool_subscribe([], sockets, _pool_options) do
     sockets
   end
 
-  defp pool_subscribe(asset_ids, [socket | sockets], conn_cap, subscribe_fn) do
+  defp pool_subscribe(asset_ids, [socket | sockets], pool_options) do
     # fill this socket's free capacity, pass the remainder to the next one.
-    free_cap = conn_cap - MapSet.size(socket.assets)
+    free_cap = pool_options.conn_cap - MapSet.size(socket.assets)
     {batch, remainder} = Enum.split(asset_ids, free_cap)
 
     [
-      socket_subscribe(socket, batch, subscribe_fn)
-      | pool_subscribe(remainder, sockets, conn_cap, subscribe_fn)
+      socket_subscribe(socket, batch, pool_options.socket_options)
+      | pool_subscribe(remainder, sockets, pool_options)
     ]
   end
 
   # ensures the pool has the required capacity available.
-  defp pool_ensure_capacity(sockets, required_cap, conn_cap, connect_fn) when required_cap > 0 do
-    pool_grow(ceil(required_cap / conn_cap), sockets, connect_fn)
+  defp pool_ensure_capacity(sockets, required_cap, pool_options) when required_cap > 0 do
+    pool_grow(ceil(required_cap / pool_options.conn_cap), sockets, pool_options.socket_options)
   end
 
-  defp pool_ensure_capacity(sockets, _, _, _), do: {:ok, sockets}
+  defp pool_ensure_capacity(sockets, _, _), do: {:ok, sockets}
 
   # opens `count` connections, stopping at the first failure but keeping the
   # ones opened so far.
-  defp pool_grow(0, sockets, _connect_fn), do: {:ok, sockets}
+  defp pool_grow(0, sockets, _socket_options), do: {:ok, sockets}
 
-  defp pool_grow(count, sockets, connect_fn) do
-    case socket_create(connect_fn) do
+  defp pool_grow(count, sockets, socket_options) do
+    case socket_create(socket_options) do
       {:ok, socket} ->
-        pool_grow(count - 1, [socket | sockets], connect_fn)
+        pool_grow(count - 1, [socket | sockets], socket_options)
 
       {:error, reason} ->
         {:error, reason, sockets}
@@ -464,13 +487,12 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # opens and monitors a connection when the sockets are all full, or none
   # exist.
-  @spec socket_create((-> DynamicSupervisor.on_start_child())) ::
-          {:ok, socket_state()} | {:error, term()}
-  defp socket_create(connect_fn) do
+  @spec socket_create(socket_options()) :: {:ok, socket_state()} | {:error, term()}
+  defp socket_create(socket_options) do
     # fire an event to log that a websocket was created.
     :telemetry.execute([:poly_bot, :websocket, :connect], %{count: 1}, %{})
 
-    case connect_fn.() do
+    case socket_options.connect_fn.() do
       {:ok, socket} ->
         Process.monitor(socket)
         {:ok, %{socket: socket, created: DateTime.utc_now(), assets: MapSet.new()}}
@@ -481,11 +503,11 @@ defmodule PolyBot.WebSocketManager.Worker do
   end
 
   # subscribes to a new list of assets
-  @spec socket_subscribe(socket_state(), [asset_id()], term()) :: socket_state()
-  defp socket_subscribe(socket, [], _state), do: socket
+  @spec socket_subscribe(socket_state(), [asset_id()], socket_options()) :: socket_state()
+  defp socket_subscribe(socket, [], _socket_options), do: socket
 
-  defp socket_subscribe(socket, asset_ids, subscribe_fn) do
-    subscribe_fn.(socket.socket, asset_ids)
+  defp socket_subscribe(socket, asset_ids, socket_options) do
+    socket_options.subscribe_fn.(socket.socket, asset_ids)
     Map.update!(socket, :assets, &MapSet.union(&1, MapSet.new(asset_ids)))
   end
 
