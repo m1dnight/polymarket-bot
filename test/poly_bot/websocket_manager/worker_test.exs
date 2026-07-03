@@ -61,7 +61,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
 
   describe "subscribe/2" do
     test "spreads asset ids over connections, respecting the capacity" do
-      worker = start_worker(max_assets_per_connection: 2)
+      worker = start_worker(conn_cap: 2)
 
       assert Worker.subscribe(worker, ["a", "b", "c"]) == :ok
 
@@ -74,7 +74,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "fills free capacity before opening a new connection" do
-      worker = start_worker(max_assets_per_connection: 2)
+      worker = start_worker(conn_cap: 2)
 
       assert Worker.subscribe(worker, ["a"]) == :ok
       assert_receive {:connected, _pid}
@@ -87,7 +87,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "skips assets that are already subscribed" do
-      worker = start_worker(max_assets_per_connection: 2)
+      worker = start_worker(conn_cap: 2)
 
       assert Worker.subscribe(worker, ["a", "b"]) == :ok
       assert_receive {:connected, _pid}
@@ -100,7 +100,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "is a no-op when all assets are already subscribed" do
-      worker = start_worker(max_assets_per_connection: 2)
+      worker = start_worker(conn_cap: 2)
 
       assert Worker.subscribe(worker, ["a"]) == :ok
       assert_receive {:connected, _pid}
@@ -133,27 +133,40 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert Worker.sockets(worker).pending_asset_count == 1
     end
 
-    test "returns the error and subscribes nothing when connecting fails" do
+    test "returns :ok and eventually subscribes even when the first connect fails" do
       worker = start_worker([], [{:error, :econnrefused}])
 
-      assert Worker.subscribe(worker, ["a"]) == {:error, :econnrefused}
+      # fire-and-forget: the caller gets :ok despite the failed connect.
+      assert Worker.subscribe(worker, ["a"]) == :ok
       assert_receive :connect_failed
-      refute_receive {:subscribed, _, _}
-      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 0}
+
+      # the immediate restore retries (the script is exhausted, so it now
+      # succeeds) and the asset lands on a fresh connection.
+      assert_receive {:connected, pid}, 500
+      assert_receive {:subscribed, ^pid, ["a"]}, 500
+      assert Worker.sockets(worker).pending_asset_count == 0
     end
 
-    test "keeps connections opened before the failure for the next call" do
-      worker = start_worker([max_assets_per_connection: 1], [:ok, {:error, :timeout}])
+    test "keeps connections opened before the failure and reuses them on retry" do
+      worker = start_worker([conn_cap: 1], [:ok, {:error, :timeout}])
 
-      assert Worker.subscribe(worker, ["a", "b"]) == {:error, :timeout}
-      assert_receive {:connected, _pid}
+      # conn_cap 1 needs two connections for two assets: the first opens, the
+      # second fails, so nothing is subscribed on the initial attempt.
+      assert Worker.subscribe(worker, ["a", "b"]) == :ok
+      assert_receive {:connected, first}
       assert_receive :connect_failed
-      refute_receive {:subscribed, _, _}
 
-      # the surviving connection covers the retried (smaller) subscription.
-      assert Worker.subscribe(worker, ["a"]) == :ok
-      assert_receive {:subscribed, _, ["a"]}
-      refute_receive {:connected, _}
+      # the immediate restore reuses the kept connection and opens just one
+      # more (the script is exhausted, so it succeeds), covering both assets
+      # across two connections instead of reopening from scratch.
+      assert_receive {:connected, second}, 500
+      assert first != second
+      assert_receive {:subscribed, _, _}, 500
+      assert_receive {:subscribed, _, _}, 500
+
+      snapshot = Worker.sockets(worker)
+      assert length(snapshot.sockets) == 2
+      assert snapshot.pending_asset_count == 0
     end
   end
 
@@ -216,7 +229,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
 
   describe "connection restore" do
     test "resubscribes the assets of a dead connection on a fresh one" do
-      worker = start_worker(max_assets_per_connection: 2)
+      worker = start_worker(conn_cap: 2)
 
       assert Worker.subscribe(worker, ["a", "b"]) == :ok
       assert_receive {:connected, pid}
@@ -231,7 +244,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "restores the assets of several dead connections" do
-      worker = start_worker(max_assets_per_connection: 1)
+      worker = start_worker(conn_cap: 1)
 
       assert Worker.subscribe(worker, ["a", "b"]) == :ok
       assert_receive {:connected, pid1}
@@ -293,16 +306,26 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "does not replace a dead connection that carried no assets" do
-      worker = start_worker([max_assets_per_connection: 1], [:ok, {:error, :timeout}])
+      worker =
+        start_worker(
+          [conn_cap: 1, retry_base_ms: 60_000, retry_max_ms: 60_000],
+          [:ok, {:error, :timeout}, {:error, :timeout}]
+        )
 
-      # opens one (empty) connection, then fails on the second.
-      assert Worker.subscribe(worker, ["a", "b"]) == {:error, :timeout}
+      # the subscribe opens one (empty) connection and fails on the second; the
+      # immediate restore fails too, so the empty connection lingers with both
+      # assets parked behind the far-off retry.
+      assert Worker.subscribe(worker, ["a", "b"]) == :ok
       assert_receive {:connected, pid}
+      assert_receive :connect_failed
+      assert_receive :connect_failed, 500
 
       Process.exit(pid, :kill)
 
+      # the dead connection carried no assets, so nothing new is parked and no
+      # replacement is opened; the two assets stay parked for the retry.
       refute_receive {:connected, _}
-      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 0}
+      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 2}
     end
   end
 

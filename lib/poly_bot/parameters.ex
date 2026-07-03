@@ -73,7 +73,7 @@ defmodule PolyBot.Parameters do
   @doc """
   Builds the argument keyword-list for `PolyBot.WebSocketManager.Worker`.
 
-  Bundles the config-driven `:max_assets_per_connection`, the subscription
+  Bundles the config-driven `:conn_cap`, the subscription
   capacity of a single websocket connection, with the `:retry_base_ms` /
   `:retry_max_ms` backoff bounds used when restoring dead connections, and
   wires `:assets_fn` to the database query that seeds the startup
@@ -85,14 +85,14 @@ defmodule PolyBot.Parameters do
   ## Examples
 
       iex> websocket_worker_opts()
-      [max_assets_per_connection: 100, retry_base_ms: 1000, retry_max_ms: 30000,
+      [conn_cap: 100, retry_base_ms: 1000, retry_max_ms: 30000,
        assets_fn: &PolyBot.Contexts.Markets.list_subscribable_asset_ids/0]
 
   """
   @spec websocket_worker_opts :: PolyBot.WebSocketManager.Worker.opts()
   def websocket_worker_opts do
     [
-      max_assets_per_connection: websocket_manager_env(:max_assets_per_connection),
+      conn_cap: websocket_manager_env(:max_assets_per_connection),
       retry_base_ms: websocket_manager_env(:retry_base_ms),
       retry_max_ms: websocket_manager_env(:retry_max_ms),
       assets_fn: assets_fn()

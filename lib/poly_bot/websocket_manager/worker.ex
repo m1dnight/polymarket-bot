@@ -29,7 +29,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   alias Phoenix.PubSub
   alias PolyBot.WebSocketManager
 
-  @default_max_assets_per_connection 2500
+  @default_conn_cap 2500
   @default_retry_base_ms 1_000
   @default_retry_max_ms 30_000
 
@@ -71,7 +71,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       * `:sockets` - the connection pool, keyed by connection pid.
       * `:subscribed_assets` - the union of all live connections' assets, used
         to skip ids that are already subscribed.
-      * `:max_assets_per_connection` - subscription capacity of a single
+      * `:conn_cap` - subscription capacity of a single
         connection.
       * `:pending_assets` - assets of dead connections awaiting resubscription.
       * `:retry_attempt` - consecutive failed restore attempts.
@@ -83,7 +83,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
     field :sockets, sockets(), default: %{}
     field :subscribed_assets, MapSet.t(asset_id()), default: MapSet.new()
-    field :max_assets_per_connection, pos_integer(), default: @default_max_assets_per_connection
+    field :conn_cap, pos_integer(), default: @default_conn_cap
     field :pending_assets, MapSet.t(asset_id()), default: MapSet.new()
     field :retry_attempt, non_neg_integer(), default: 0
     field :retry_ref, reference() | nil, default: nil
@@ -97,7 +97,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   @typedoc """
   Options accepted by `start_link/1`.
 
-    * `:max_assets_per_connection` - subscription capacity of a single
+    * `:conn_cap` - subscription capacity of a single
       connection, from config (default: 100).
     * `:retry_base_ms` - delay of the first backed-off restore retry, from
       config; doubles per consecutive failure (default: 1000).
@@ -114,7 +114,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       `PolyBot.Parameters.websocket_worker_opts/0`.
   """
   @type opts :: [
-          max_assets_per_connection: pos_integer(),
+          conn_cap: pos_integer(),
           retry_base_ms: pos_integer(),
           retry_max_ms: pos_integer(),
           name: GenServer.name() | nil,
@@ -132,7 +132,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   ## Examples
 
-      iex> PolyBot.WebSocketManager.Worker.start_link(max_assets_per_connection: 50)
+      iex> PolyBot.WebSocketManager.Worker.start_link(conn_cap: 50)
       {:ok, pid}
 
   """
@@ -147,11 +147,11 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   Ids that are already subscribed on a live connection, or parked for
   automatic resubscription after theirs died, are skipped, so the call is
-  idempotent. Opens new connections as needed. When opening a
-  connection fails, none of the ids are subscribed: connections opened before
-  the failure are kept for a later call and the error is returned. Assets
-  lost when a live connection dies are resubscribed automatically, backing
-  off while connecting fails.
+  idempotent. Opens new connections as needed. Fire-and-forget: when opening a
+  connection fails the ids are parked and resubscribed automatically with
+  exponential backoff (the same path used when a live connection dies), so a
+  successful call guarantees the assets eventually get a live subscription.
+  Always returns `:ok`.
 
   ## Examples
 
@@ -159,7 +159,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       :ok
 
   """
-  @spec subscribe(GenServer.server(), [asset_id()]) :: :ok | {:error, term()}
+  @spec subscribe(GenServer.server(), [asset_id()]) :: :ok
   def subscribe(server \\ __MODULE__, asset_ids) do
     GenServer.call(server, {:subscribe, asset_ids}, :infinity)
   end
@@ -194,8 +194,7 @@ defmodule PolyBot.WebSocketManager.Worker do
     PubSub.subscribe(PolyBot.PubSub, "events:refreshed")
 
     state = %__MODULE__{
-      max_assets_per_connection:
-        Keyword.get(opts, :max_assets_per_connection, @default_max_assets_per_connection),
+      conn_cap: Keyword.get(opts, :conn_cap, @default_conn_cap),
       retry_base_ms: Keyword.get(opts, :retry_base_ms, @default_retry_base_ms),
       retry_max_ms: Keyword.get(opts, :retry_max_ms, @default_retry_max_ms),
       connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
@@ -217,20 +216,12 @@ defmodule PolyBot.WebSocketManager.Worker do
   end
 
   @impl true
-  # subscribe the pool to this set of assets.
+  # subscribe the pool to this set of assets. Fire-and-forget: a failed connect
+  # parks the ids and schedules a backed-off restore, just like the
+  # resync/restore paths, so the caller always gets `:ok` and never has to
+  # retry itself.
   def handle_call({:subscribe, asset_ids}, _from, state) do
-    # ids parked for restore are already on their way back; the reject cannot
-    # live in `pool_try_subscribe_assets` or it would drop the restore's own
-    # resubscriptions.
-    asset_ids = Enum.reject(asset_ids, &MapSet.member?(state.pending_assets, &1))
-
-    case pool_try_subscribe_assets(state, asset_ids) do
-      {:ok, state} ->
-        {:reply, :ok, state}
-
-      {:error, reason, state} ->
-        {:reply, {:error, reason}, state}
-    end
+    {:reply, :ok, sync_new_assets(state, asset_ids)}
   end
 
   # return the list of sockets currently in use.
@@ -258,10 +249,11 @@ defmodule PolyBot.WebSocketManager.Worker do
         state = %{
           state
           | sockets: sockets,
-            subscribed_assets: MapSet.difference(state.subscribed_assets, socket.assets)
+            subscribed_assets: MapSet.difference(state.subscribed_assets, socket.assets),
+            pending_assets: MapSet.union(state.pending_assets, socket.assets)
         }
 
-        {:noreply, schedule_restore(state, socket.assets)}
+        {:noreply, schedule_restore(state)}
     end
   end
 
@@ -282,63 +274,100 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   def handle_info(:restore_pending, state) do
     state = %{state | retry_ref: nil}
-
-    case pool_try_subscribe_assets(state, MapSet.to_list(state.pending_assets)) do
-      # all assets were sucessfully subscribed to.
-      {:ok, state} ->
-        # fire an event to log that the parked assets were resubscribed.
-        :telemetry.execute(
-          [:poly_bot, :websocket, :restore],
-          %{count: MapSet.size(state.pending_assets)},
-          %{}
-        )
-
-        {:noreply, %{state | pending_assets: MapSet.new(), retry_attempt: 0}}
-
-      # failed to subscribe to all the assets.
-      {:error, reason, state} ->
-        state = %{state | retry_attempt: state.retry_attempt + 1}
-
-        Logger.warning(
-          "Restoring websocket subscriptions failed (attempt #{state.retry_attempt}): " <>
-            "#{inspect(reason)}; retrying in #{backoff(state)}ms."
-        )
-
-        {:noreply, schedule_restore(state, MapSet.new())}
-    end
+    {:noreply, sync_parked_assets(state)}
   end
 
   # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
 
-  # Runs `assets_fn` and subscribes the ids that are new: seeds the
-  # pool at startup and picks up assets stored by later event syncs. Ids
-  # parked for restore are skipped — that restore is already bringing them
-  # back. When opening a connection fails, the new ids are parked for the
-  # usual backed-off restore.
-  @spec resync_assets(t()) :: t()
+  # ---------------------------------------------------------------------------
+  # Asset Management
+
+  # fetches a list of assets from the database and subscribes to ones that are currently not subscribed to.
   defp resync_assets(state) do
-    # fetch the list of assets from the database. all asset ids that are
-    # currently in the pending state are rejected.
     asset_ids =
       state.assets_fn.()
-      |> Enum.reject(&MapSet.member?(state.pending_assets, &1))
+      |> new_assets_only(state)
 
-    case pool_try_subscribe_assets(state, asset_ids) do
+    sync_new_assets(state, asset_ids)
+  end
+
+  # runs `sync_assets/2` and keeps the resulting state whether the subscribe
+  # succeeded or the ids were parked for a backed-off retry. Used by the
+  # fire-and-forget paths (initial seed, resync, `subscribe/2`) that don't
+  # surface the connect error to a caller.
+  defp sync_parked_assets(state) do
+    asset_ids = MapSet.to_list(state.pending_assets)
+    state = %{state | pending_assets: MapSet.new(), retry_attempt: state.retry_attempt + 1}
+
+    state = sync_new_assets(state, asset_ids)
+
+    if MapSet.size(state.pending_assets) > 0 do
+      state
+    else
+      %{state | retry_attempt: 0}
+    end
+  end
+
+  defp sync_new_assets(state, asset_ids) do
+    asset_ids = new_assets_only(asset_ids, state)
+
+    case sync_assets(state, asset_ids) do
       {:ok, state} ->
         state
 
-      {:error, reason, state} ->
-        parked = MapSet.difference(MapSet.new(asset_ids), state.subscribed_assets)
-
-        Logger.warning(
-          "Websocket subscription resync failed: #{inspect(reason)}; " <>
-            "parking #{MapSet.size(parked)} assets for restore."
-        )
-
-        schedule_restore(state, parked)
+      {:error, _reason, state} ->
+        state
     end
+  end
+
+  # given a list of asset ids, subscribes to the ones that are currently not present in the pool.
+  # expects the pending_assets to empty!
+  defp sync_assets(state, asset_ids) do
+    asset_ids = new_assets_only(asset_ids, state)
+
+    case subscribe_assets(state, asset_ids) do
+      {:ok, sockets} ->
+        new_state = %{
+          state
+          | sockets: pool_index_sockets(sockets),
+            subscribed_assets: MapSet.union(state.subscribed_assets, MapSet.new(asset_ids))
+        }
+
+        {:ok, new_state}
+
+      {:error, reason, sockets} ->
+        new_state =
+          %{state | sockets: pool_index_sockets(sockets), pending_assets: MapSet.new(asset_ids)}
+          |> schedule_restore()
+
+        {:error, reason, new_state}
+    end
+  end
+
+  # returns a list of assets that are not currently subscribed to, or that are pending resubscription.
+  defp new_assets_only(asset_ids, state) do
+    asset_ids
+    |> Enum.reject(
+      &(MapSet.member?(state.pending_assets, &1) or MapSet.member?(state.subscribed_assets, &1))
+    )
+  end
+
+  @spec subscribe_assets(t(), [asset_id()]) ::
+          {:ok, [socket_state()]} | {:error, term(), [socket_state()]}
+  defp subscribe_assets(state, asset_ids) do
+    # compute the total available capacity at this point
+    available_cap = pool_available_capacity(state)
+
+    pool_try_subscribe_assets(
+      Map.values(state.sockets),
+      available_cap,
+      state.conn_cap,
+      asset_ids,
+      state.connect_fn,
+      state.subscribe_fn
+    )
   end
 
   # drains queued refresh notifications; the resync about to run covers them.
@@ -350,6 +379,13 @@ defmodule PolyBot.WebSocketManager.Worker do
     end
   end
 
+  # returns the total available capacity for the pool of sockets
+  defp pool_available_capacity(state) do
+    total_cap = Enum.count(state.sockets) * state.conn_cap
+    used_cap = MapSet.size(state.subscribed_assets)
+    total_cap - used_cap
+  end
+
   # ---------------------------------------------------------------------------
   # Pool Management
 
@@ -358,73 +394,66 @@ defmodule PolyBot.WebSocketManager.Worker do
   # returning the updated state. When opening a connection fails no ids are
   # subscribed, but the connections opened before the failure are kept in the
   # pool so a later attempt reuses them.
-  @spec pool_try_subscribe_assets(t(), [asset_id()]) :: {:ok, t()} | {:error, term(), t()}
-  defp pool_try_subscribe_assets(state, asset_ids) do
-    new_ids =
-      asset_ids
-      |> Enum.uniq()
-      |> Enum.reject(&MapSet.member?(state.subscribed_assets, &1))
+  defp pool_try_subscribe_assets(
+         sockets,
+         available_cap,
+         conn_cap,
+         asset_ids,
+         connect_fn,
+         subscribe_fn
+       ) do
+    # total capacity required for this list of asset ids.
+    required_cap = Enum.count(asset_ids)
 
-    sockets = Map.values(state.sockets)
+    # calculate how many extra capacity is needed, or 0 if we can fit the assets
+    # in the available cap.
+    missing_cap = max(0, required_cap - available_cap)
 
-    case pool_ensure_capacity(sockets, state, Enum.count(new_ids)) do
+    case pool_ensure_capacity(sockets, missing_cap, conn_cap, connect_fn) do
       {:ok, sockets} ->
-        sockets = pool_subscribe(new_ids, state, sockets)
-
-        {:ok,
-         %{
-           state
-           | sockets: pool_index_sockets(sockets),
-             subscribed_assets: MapSet.union(state.subscribed_assets, MapSet.new(new_ids))
-         }}
+        sockets = pool_subscribe(asset_ids, sockets, conn_cap, subscribe_fn)
+        {:ok, sockets}
 
       {:error, reason, sockets} ->
-        {:error, reason, %{state | sockets: pool_index_sockets(sockets)}}
-    end
-  end
-
-  # no asset ids
-  defp pool_subscribe([], _state, sockets) do
-    sockets
-  end
-
-  defp pool_subscribe(asset_ids, state, [socket | sockets]) do
-    # fill this socket's free capacity, pass the remainder to the next one.
-    free_cap = state.max_assets_per_connection - MapSet.size(socket.assets)
-    {batch, remainder} = Enum.split(asset_ids, free_cap)
-    [socket_subscribe(socket, batch, state) | pool_subscribe(remainder, state, sockets)]
-  end
-
-  # ensures the pool has the required capacity available.
-  defp pool_ensure_capacity(sockets, state, required_cap) do
-    missing_cap = required_cap - pool_available_capacity(sockets, state.max_assets_per_connection)
-
-    if missing_cap > 0 do
-      pool_grow(ceil(missing_cap / state.max_assets_per_connection), state, sockets)
-    else
-      {:ok, sockets}
-    end
-  end
-
-  # opens `count` connections, stopping at the first failure but keeping the
-  # ones opened so far.
-  defp pool_grow(0, _state, sockets), do: {:ok, sockets}
-
-  defp pool_grow(count, state, sockets) do
-    case socket_add(state) do
-      {:ok, socket} ->
-        pool_grow(count - 1, state, [socket | sockets])
-
-      {:error, reason} ->
         {:error, reason, sockets}
     end
   end
 
-  # returns the total available capacity for the pool of sockets
-  defp pool_available_capacity(sockets, cap_per_socket) do
-    Enum.reduce(sockets, 0, fn socket, cap ->
-      cap + (cap_per_socket - MapSet.size(socket.assets))
-    end)
+  # no asset ids
+  defp pool_subscribe([], sockets, _conn_cap, _subscribe_fn) do
+    sockets
+  end
+
+  defp pool_subscribe(asset_ids, [socket | sockets], conn_cap, subscribe_fn) do
+    # fill this socket's free capacity, pass the remainder to the next one.
+    free_cap = conn_cap - MapSet.size(socket.assets)
+    {batch, remainder} = Enum.split(asset_ids, free_cap)
+
+    [
+      socket_subscribe(socket, batch, subscribe_fn)
+      | pool_subscribe(remainder, sockets, conn_cap, subscribe_fn)
+    ]
+  end
+
+  # ensures the pool has the required capacity available.
+  defp pool_ensure_capacity(sockets, required_cap, conn_cap, connect_fn) when required_cap > 0 do
+    pool_grow(ceil(required_cap / conn_cap), sockets, connect_fn)
+  end
+
+  defp pool_ensure_capacity(sockets, _, _, _), do: {:ok, sockets}
+
+  # opens `count` connections, stopping at the first failure but keeping the
+  # ones opened so far.
+  defp pool_grow(0, sockets, _connect_fn), do: {:ok, sockets}
+
+  defp pool_grow(count, sockets, connect_fn) do
+    case socket_create(connect_fn) do
+      {:ok, socket} ->
+        pool_grow(count - 1, [socket | sockets], connect_fn)
+
+      {:error, reason} ->
+        {:error, reason, sockets}
+    end
   end
 
   # rebuild the map of sockets.
@@ -435,12 +464,13 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # opens and monitors a connection when the sockets are all full, or none
   # exist.
-  @spec socket_add(t()) :: {:ok, socket_state()} | {:error, term()}
-  defp socket_add(state) do
+  @spec socket_create((-> DynamicSupervisor.on_start_child())) ::
+          {:ok, socket_state()} | {:error, term()}
+  defp socket_create(connect_fn) do
     # fire an event to log that a websocket was created.
     :telemetry.execute([:poly_bot, :websocket, :connect], %{count: 1}, %{})
 
-    case state.connect_fn.() do
+    case connect_fn.() do
       {:ok, socket} ->
         Process.monitor(socket)
         {:ok, %{socket: socket, created: DateTime.utc_now(), assets: MapSet.new()}}
@@ -451,11 +481,11 @@ defmodule PolyBot.WebSocketManager.Worker do
   end
 
   # subscribes to a new list of assets
-  @spec socket_subscribe(socket_state(), [asset_id()], t()) :: socket_state()
+  @spec socket_subscribe(socket_state(), [asset_id()], term()) :: socket_state()
   defp socket_subscribe(socket, [], _state), do: socket
 
-  defp socket_subscribe(socket, asset_ids, state) do
-    state.subscribe_fn.(socket.socket, asset_ids)
+  defp socket_subscribe(socket, asset_ids, subscribe_fn) do
+    subscribe_fn.(socket.socket, asset_ids)
     Map.update!(socket, :assets, &MapSet.union(&1, MapSet.new(asset_ids)))
   end
 
@@ -479,31 +509,20 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # Parks `assets` for resubscription and schedules a `:restore_pending`
   # unless one is already on the way (it picks the new assets up too).
-  defp schedule_restore(state, assets) do
-    # list of all assets that are not subscribed to at this moment.
-    pending = MapSet.union(state.pending_assets, assets)
-    parked = MapSet.size(pending) - MapSet.size(state.pending_assets)
-
-    if parked > 0 do
-      # fire an event to log that assets were parked for resubscription.
-      :telemetry.execute([:poly_bot, :websocket, :park], %{count: parked}, %{
-        pending_assets: MapSet.size(pending)
-      })
-    end
-
+  defp schedule_restore(state) do
     cond do
       # no assets to retry
-      MapSet.size(pending) == 0 ->
+      MapSet.size(state.pending_assets) == 0 ->
         state
 
       # there is already a retry pending.
       state.retry_ref != nil ->
-        %{state | pending_assets: pending}
+        state
 
       # trigger a retry in an exponential backoff fashion
       true ->
         ref = Process.send_after(self(), :restore_pending, backoff(state))
-        %{state | pending_assets: pending, retry_ref: ref}
+        %{state | retry_ref: ref}
     end
   end
 

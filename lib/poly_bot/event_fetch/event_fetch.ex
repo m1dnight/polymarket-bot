@@ -8,8 +8,6 @@ defmodule PolyBot.EventFetch do
   on demand (e.g. from IEx).
   """
 
-  require Logger
-
   alias Phoenix.PubSub
   alias PolyBot.Contexts.Events
   alias Polymarket.Schemas.Event, as: GammaEvent
