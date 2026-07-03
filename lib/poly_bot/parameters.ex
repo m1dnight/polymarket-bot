@@ -76,9 +76,9 @@ defmodule PolyBot.Parameters do
   Bundles the config-driven `:max_assets_per_connection`, the subscription
   capacity of a single websocket connection, with the `:retry_base_ms` /
   `:retry_max_ms` backoff bounds used when restoring dead connections, and
-  wires `:initial_assets_fn` to the database query that seeds the startup
+  wires `:assets_fn` to the database query that seeds the startup
   subscriptions with the tradable markets already stored. When the
-  config-driven `:resync_from_db` is off, `:initial_assets_fn` returns `[]`
+  config-driven `:resync_from_db` is off, `:assets_fn` returns `[]`
   instead — tests use this to keep the app singleton away from the sandboxed
   database.
 
@@ -86,7 +86,7 @@ defmodule PolyBot.Parameters do
 
       iex> websocket_worker_opts()
       [max_assets_per_connection: 100, retry_base_ms: 1000, retry_max_ms: 30000,
-       initial_assets_fn: &PolyBot.Contexts.Markets.list_subscribable_asset_ids/0]
+       assets_fn: &PolyBot.Contexts.Markets.list_subscribable_asset_ids/0]
 
   """
   @spec websocket_worker_opts :: PolyBot.WebSocketManager.Worker.opts()
@@ -95,7 +95,7 @@ defmodule PolyBot.Parameters do
       max_assets_per_connection: websocket_manager_env(:max_assets_per_connection),
       retry_base_ms: websocket_manager_env(:retry_base_ms),
       retry_max_ms: websocket_manager_env(:retry_max_ms),
-      initial_assets_fn: initial_assets_fn()
+      assets_fn: assets_fn()
     ]
   end
 
@@ -123,8 +123,8 @@ defmodule PolyBot.Parameters do
 
   # the DB-backed resync source, or a no-op source when `:resync_from_db` is
   # disabled (the test env, where the singleton must not touch the sandbox).
-  @spec initial_assets_fn :: (-> [PolyBot.WebSocketManager.Worker.asset_id()])
-  defp initial_assets_fn do
+  @spec assets_fn :: (-> [PolyBot.WebSocketManager.Worker.asset_id()])
+  defp assets_fn do
     if websocket_manager_env(:resync_from_db) do
       &Markets.list_subscribable_asset_ids/0
     else

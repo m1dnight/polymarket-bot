@@ -10,13 +10,13 @@ defmodule PolyBot.WebSocketManager.Worker do
   exponential backoff while connecting fails.
 
   On startup the pool seeds itself with the asset ids returned by
-  `:initial_assets_fn` (wired to the tradable markets already in the database
+  `:assets_fn` (wired to the tradable markets already in the database
   by `PolyBot.Parameters.websocket_worker_opts/0`), reusing the same parking
   and backoff when that first subscription fails.
 
   The worker also listens on the `"events:refreshed"` PubSub topic, where
   `PolyBot.EventFetch` announces every stored chunk of events. Each broadcast
-  re-runs `:initial_assets_fn` and subscribes the assets that are new, so
+  re-runs `:assets_fn` and subscribes the assets that are new, so
   markets discovered by later syncs get a live subscription without a
   restart.
   """
@@ -77,7 +77,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       * `:retry_attempt` - consecutive failed restore attempts.
       * `:retry_ref` - timer of the scheduled restore, if any.
       * `:retry_base_ms` / `:retry_max_ms` - restore backoff bounds.
-      * `:connect_fn` / `:subscribe_fn` / `:initial_assets_fn` - see
+      * `:connect_fn` / `:subscribe_fn` / `:assets_fn` - see
         `t:opts/0`.
     """
 
@@ -91,7 +91,7 @@ defmodule PolyBot.WebSocketManager.Worker do
     field :retry_max_ms, pos_integer(), default: @default_retry_max_ms
     field :connect_fn, (-> DynamicSupervisor.on_start_child())
     field :subscribe_fn, (pid(), [asset_id()] -> :ok)
-    field :initial_assets_fn, (-> [asset_id()])
+    field :assets_fn, (-> [asset_id()])
   end
 
   @typedoc """
@@ -107,7 +107,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       tests pass `nil` for an unnamed instance.
     * `:connect_fn` / `:subscribe_fn` - injection points for tests, defaulting
       to `PolyBot.WebSocketManager.connect/0` and `subscribe/2`.
-    * `:initial_assets_fn` - returns the asset ids the pool should carry; run
+    * `:assets_fn` - returns the asset ids the pool should carry; run
       right after startup and again on every `"events:refreshed"` broadcast
       (default: a function returning `[]`, i.e. no initial subscription). The
       app wires in the database-backed query via
@@ -120,7 +120,7 @@ defmodule PolyBot.WebSocketManager.Worker do
           name: GenServer.name() | nil,
           connect_fn: (-> DynamicSupervisor.on_start_child()),
           subscribe_fn: (pid(), [asset_id()] -> :ok),
-          initial_assets_fn: (-> [asset_id()])
+          assets_fn: (-> [asset_id()])
         ]
 
   # ---------------------------------------------------------------------------#
@@ -200,7 +200,7 @@ defmodule PolyBot.WebSocketManager.Worker do
       retry_max_ms: Keyword.get(opts, :retry_max_ms, @default_retry_max_ms),
       connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
       subscribe_fn: Keyword.get(opts, :subscribe_fn, &WebSocketManager.subscribe/2),
-      initial_assets_fn: Keyword.get(opts, :initial_assets_fn, fn -> [] end)
+      assets_fn: Keyword.get(opts, :assets_fn, fn -> [] end)
     }
 
     # the initial subscription runs after init so it doesn't hold up the rest
@@ -312,18 +312,18 @@ defmodule PolyBot.WebSocketManager.Worker do
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
 
-  # ---------------------------------------------------------------------------
-  # Pool Management
-
-  # Runs `initial_assets_fn` and subscribes the ids that are new: seeds the
+  # Runs `assets_fn` and subscribes the ids that are new: seeds the
   # pool at startup and picks up assets stored by later event syncs. Ids
   # parked for restore are skipped — that restore is already bringing them
   # back. When opening a connection fails, the new ids are parked for the
   # usual backed-off restore.
   @spec resync_assets(t()) :: t()
   defp resync_assets(state) do
+    # fetch the list of assets from the database. all asset ids that are
+    # currently in the pending state are rejected.
     asset_ids =
-      Enum.reject(state.initial_assets_fn.(), &MapSet.member?(state.pending_assets, &1))
+      state.assets_fn.()
+      |> Enum.reject(&MapSet.member?(state.pending_assets, &1))
 
     case pool_try_subscribe_assets(state, asset_ids) do
       {:ok, state} ->
@@ -349,6 +349,9 @@ defmodule PolyBot.WebSocketManager.Worker do
       0 -> :ok
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Pool Management
 
   # Tries to subscribe `asset_ids`: drops ids that are already subscribed,
   # ensures capacity for the rest, then spreads them over the sockets,

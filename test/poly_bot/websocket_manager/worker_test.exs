@@ -20,8 +20,8 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
   # ---------------------------------------------------------------------------#
 
   describe "initial subscription" do
-    test "subscribes the assets returned by initial_assets_fn on startup" do
-      worker = start_worker(initial_assets_fn: fn -> ["a", "b"] end)
+    test "subscribes the assets returned by assets_fn on startup" do
+      worker = start_worker(assets_fn: fn -> ["a", "b"] end)
 
       assert_receive {:connected, pid}
       assert_receive {:subscribed, ^pid, ["a", "b"]}
@@ -42,7 +42,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     test "parks the initial assets for restore when connecting fails" do
       worker =
         start_worker(
-          [initial_assets_fn: fn -> ["a"] end, retry_base_ms: 10, retry_max_ms: 40],
+          [assets_fn: fn -> ["a"] end, retry_base_ms: 10, retry_max_ms: 40],
           [{:error, :econnrefused}]
         )
 
@@ -164,7 +164,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
   describe "events refresh" do
     test "subscribes assets that appeared since the last event sync" do
       assets = start_supervised!({Agent, fn -> ["a"] end}, id: :assets)
-      start_worker(initial_assets_fn: fn -> Agent.get(assets, & &1) end)
+      start_worker(assets_fn: fn -> Agent.get(assets, & &1) end)
 
       assert_receive {:connected, _pid}
       assert_receive {:subscribed, _, ["a"]}
@@ -177,7 +177,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     end
 
     test "is a no-op when the refresh brings no new assets" do
-      worker = start_worker(initial_assets_fn: fn -> ["a"] end)
+      worker = start_worker(assets_fn: fn -> ["a"] end)
 
       assert_receive {:connected, _pid}
       assert_receive {:subscribed, _, ["a"]}
@@ -200,7 +200,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
         end
       end
 
-      worker = start_worker(initial_assets_fn: assets_fn)
+      worker = start_worker(assets_fn: assets_fn)
       _ = Worker.sockets(worker)
 
       send(worker, {:events_refreshed, 1})
