@@ -191,7 +191,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # restores a socket: create a new socket and immediately subscribe to the given asset ids.
   defp socket_restore(asset_ids) do
-    Logger.debug "Restoring socket for #{MapSet.size(asset_ids)} assets."
+    Logger.debug("Restoring socket for #{MapSet.size(asset_ids)} assets.")
     socket_subscribe(socket_add(), MapSet.to_list(asset_ids))
   end
 

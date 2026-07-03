@@ -84,7 +84,7 @@ defmodule PolyBot.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:ex_polymarket, path: "../polymarket_websocket"}
+      {:ex_polymarket, git: "https://github.com/m1dnight/ex-polymarket.git"}
     ]
   end
 
