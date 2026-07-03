@@ -12,7 +12,8 @@ defmodule PolyBot.MixProject do
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
-      test_coverage: [ignore_modules: coverage_ignore()]
+      test_coverage: [ignore_modules: coverage_ignore()],
+      dialyzer: [plt_add_apps: [:ex_unit]]
     ]
   end
 
@@ -111,7 +112,14 @@ defmodule PolyBot.MixProject do
         "esbuild poly_bot --minify",
         "phx.digest"
       ],
-      precommit: ["credo --strict", "dialyzer","compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "credo --strict",
+        "dialyzer",
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "test"
+      ]
     ]
   end
 end

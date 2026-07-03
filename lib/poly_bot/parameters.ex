@@ -124,7 +124,7 @@ defmodule PolyBot.Parameters do
     |> Keyword.fetch!(key)
   end
 
-  @spec minimum_liquidity :: integer()
+  @spec minimum_liquidity :: integer() | :infinity
   defp minimum_liquidity, do: event_fetcher_env(:minimum_liquidity)
 
   @spec event_fetcher_env(atom()) :: term()

@@ -12,8 +12,8 @@ defmodule PolyBot.WebSocketManager do
   open a connection, `subscribe/2` to point it at an asset id.
   """
 
-  alias Polymarket.WebSocket
   alias PolyBot.WebSocketManager.Handler
+  alias Polymarket.WebSocket
   alias Polymarket.WebSocket.SocketSupervisor
 
   # Constants for the CLOB market-channel `subscribe` operation. These mirror the

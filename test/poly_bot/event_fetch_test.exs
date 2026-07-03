@@ -1,11 +1,11 @@
 defmodule PolyBot.EventFetchTest do
   use PolyBot.DataCase, async: false
 
-  alias PolyBot.EventFetch
   alias PolyBot.Contexts.Events
   alias PolyBot.Contexts.Markets
-  alias PolyBot.Support.FakeGamma
+  alias PolyBot.EventFetch
   alias PolyBot.Fixtures
+  alias PolyBot.Support.FakeGamma
 
   setup do
     Application.put_env(:poly_bot, :gamma_client, FakeGamma)

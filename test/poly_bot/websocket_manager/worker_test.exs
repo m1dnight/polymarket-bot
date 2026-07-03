@@ -266,21 +266,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     test_pid = self()
     agent = start_supervised!({Agent, fn -> script end})
 
-    connect_fn = fn ->
-      case Agent.get_and_update(agent, fn
-             [] -> {:ok, []}
-             [result | rest] -> {result, rest}
-           end) do
-        :ok ->
-          pid = spawn(fn -> fake_connection(test_pid) end)
-          send(test_pid, {:connected, pid})
-          {:ok, pid}
-
-        {:error, reason} ->
-          send(test_pid, :connect_failed)
-          {:error, reason}
-      end
-    end
+    connect_fn = fn -> scripted_connect(agent, test_pid) end
 
     subscribe_fn = fn pid, asset_ids ->
       send(test_pid, {:subscribed, pid, asset_ids})
@@ -290,6 +276,22 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
     start_supervised!(
       {Worker, [name: nil, connect_fn: connect_fn, subscribe_fn: subscribe_fn] ++ opts}
     )
+  end
+
+  defp scripted_connect(agent, test_pid) do
+    case Agent.get_and_update(agent, fn
+           [] -> {:ok, []}
+           [result | rest] -> {result, rest}
+         end) do
+      :ok ->
+        pid = spawn(fn -> fake_connection(test_pid) end)
+        send(test_pid, {:connected, pid})
+        {:ok, pid}
+
+      {:error, reason} ->
+        send(test_pid, :connect_failed)
+        {:error, reason}
+    end
   end
 
   # idles until the owning test exits, so fake connections don't outlive it.
