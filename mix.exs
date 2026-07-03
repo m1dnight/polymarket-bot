@@ -37,7 +37,7 @@ defmodule PolyBot.MixProject do
   def application do
     [
       mod: {PolyBot.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :os_mon]
     ]
   end
 
