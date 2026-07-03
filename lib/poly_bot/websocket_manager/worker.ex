@@ -57,6 +57,8 @@ defmodule PolyBot.WebSocketManager.Worker do
     The worker state.
 
       * `:sockets` - the connection pool, keyed by connection pid.
+      * `:subscribed_assets` - the union of all live connections' assets, used
+        to skip ids that are already subscribed.
       * `:max_assets_per_connection` - subscription capacity of a single
         connection.
       * `:pending_assets` - assets of dead connections awaiting resubscription.
@@ -67,6 +69,7 @@ defmodule PolyBot.WebSocketManager.Worker do
     """
 
     field :sockets, sockets(), default: %{}
+    field :subscribed_assets, MapSet.t(asset_id()), default: MapSet.new()
     field :max_assets_per_connection, pos_integer(), default: @default_max_assets_per_connection
     field :pending_assets, MapSet.t(asset_id()), default: MapSet.new()
     field :retry_attempt, non_neg_integer(), default: 0
@@ -122,10 +125,13 @@ defmodule PolyBot.WebSocketManager.Worker do
   @doc """
   Subscribe to updates for `asset_ids`, spreading them across connections.
 
-  Opens new connections as needed. When opening a connection fails, none of
-  the ids are subscribed: connections opened before the failure are kept for
-  a later call and the error is returned. Assets lost when a live connection
-  dies are resubscribed automatically, backing off while connecting fails.
+  Ids that are already subscribed on a live connection, or parked for
+  automatic resubscription after theirs died, are skipped, so the call is
+  idempotent. Opens new connections as needed. When opening a
+  connection fails, none of the ids are subscribed: connections opened before
+  the failure are kept for a later call and the error is returned. Assets
+  lost when a live connection dies are resubscribed automatically, backing
+  off while connecting fails.
 
   ## Examples
 
@@ -178,6 +184,11 @@ defmodule PolyBot.WebSocketManager.Worker do
   @impl true
   # subscribe the pool to this set of assets.
   def handle_call({:subscribe, asset_ids}, _from, state) do
+    # ids parked for restore are already on their way back; the reject cannot
+    # live in `pool_try_subscribe_assets` or it would drop the restore's own
+    # resubscriptions.
+    asset_ids = Enum.reject(asset_ids, &MapSet.member?(state.pending_assets, &1))
+
     case pool_try_subscribe_assets(state, asset_ids) do
       {:ok, state} ->
         {:reply, :ok, state}
@@ -206,7 +217,16 @@ defmodule PolyBot.WebSocketManager.Worker do
 
       {socket, sockets} ->
         socket_log_disconnect(socket, reason)
-        {:noreply, schedule_restore(%{state | sockets: sockets}, socket.assets)}
+
+        # the dead connection's assets are no longer subscribed; the restore
+        # re-adds them to `:subscribed_assets` once they are back on a socket.
+        state = %{
+          state
+          | sockets: sockets,
+            subscribed_assets: MapSet.difference(state.subscribed_assets, socket.assets)
+        }
+
+        {:noreply, schedule_restore(state, socket.assets)}
     end
   end
 
@@ -238,18 +258,30 @@ defmodule PolyBot.WebSocketManager.Worker do
   # ---------------------------------------------------------------------------
   # Pool Management
 
-  # Tries to subscribe `asset_ids`: ensures capacity for them, then spreads
-  # them over the sockets, returning the updated state. When opening a
-  # connection fails no ids are subscribed, but the connections opened before
-  # the failure are kept in the pool so a later attempt reuses them.
+  # Tries to subscribe `asset_ids`: drops ids that are already subscribed,
+  # ensures capacity for the rest, then spreads them over the sockets,
+  # returning the updated state. When opening a connection fails no ids are
+  # subscribed, but the connections opened before the failure are kept in the
+  # pool so a later attempt reuses them.
   @spec pool_try_subscribe_assets(t(), [asset_id()]) :: {:ok, t()} | {:error, term(), t()}
   defp pool_try_subscribe_assets(state, asset_ids) do
+    new_ids =
+      asset_ids
+      |> Enum.uniq()
+      |> Enum.reject(&MapSet.member?(state.subscribed_assets, &1))
+
     sockets = Map.values(state.sockets)
 
-    case pool_ensure_capacity(sockets, state, Enum.count(asset_ids)) do
+    case pool_ensure_capacity(sockets, state, Enum.count(new_ids)) do
       {:ok, sockets} ->
-        sockets = pool_subscribe(asset_ids, state, sockets)
-        {:ok, %{state | sockets: pool_index_sockets(sockets)}}
+        sockets = pool_subscribe(new_ids, state, sockets)
+
+        {:ok,
+         %{
+           state
+           | sockets: pool_index_sockets(sockets),
+             subscribed_assets: MapSet.union(state.subscribed_assets, MapSet.new(new_ids))
+         }}
 
       {:error, reason, sockets} ->
         {:error, reason, %{state | sockets: pool_index_sockets(sockets)}}

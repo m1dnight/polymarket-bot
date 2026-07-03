@@ -45,6 +45,53 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert length(Worker.sockets(worker).sockets) == 1
     end
 
+    test "skips assets that are already subscribed" do
+      worker = start_worker(max_assets_per_connection: 2)
+
+      assert Worker.subscribe(worker, ["a", "b"]) == :ok
+      assert_receive {:connected, _pid}
+      assert_receive {:subscribed, _, ["a", "b"]}
+
+      # "a" and "b" are already subscribed: only "c" goes out.
+      assert Worker.subscribe(worker, ["a", "b", "c"]) == :ok
+      assert_receive {:subscribed, _, ["c"]}
+      refute_receive {:subscribed, _, _}
+    end
+
+    test "is a no-op when all assets are already subscribed" do
+      worker = start_worker(max_assets_per_connection: 2)
+
+      assert Worker.subscribe(worker, ["a"]) == :ok
+      assert_receive {:connected, _pid}
+      assert_receive {:subscribed, _, ["a"]}
+
+      assert Worker.subscribe(worker, ["a", "a"]) == :ok
+      refute_receive {:connected, _}
+      refute_receive {:subscribed, _, _}
+    end
+
+    test "skips assets that are parked for resubscription" do
+      worker =
+        start_worker(
+          [retry_base_ms: 60_000, retry_max_ms: 60_000],
+          [:ok, {:error, :econnrefused}]
+        )
+
+      assert Worker.subscribe(worker, ["a"]) == :ok
+      assert_receive {:connected, pid}
+      assert_receive {:subscribed, ^pid, ["a"]}
+
+      # the immediate restore attempt fails, parking "a" until the far-off
+      # retry; subscribing it again must not double it up.
+      Process.exit(pid, :kill)
+      assert_receive :connect_failed, 500
+
+      assert Worker.subscribe(worker, ["a", "b"]) == :ok
+      assert_receive {:subscribed, _, ["b"]}
+      refute_receive {:subscribed, _, _}
+      assert Worker.sockets(worker).pending_asset_count == 1
+    end
+
     test "returns the error and subscribes nothing when connecting fails" do
       worker = start_worker([], [{:error, :econnrefused}])
 
