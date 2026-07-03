@@ -40,7 +40,12 @@ if config_env() != :test do
   config :poly_bot, :websocket_manager,
     # subscription capacity of a single websocket connection; the worker opens
     # a new connection once all existing ones are full
-    max_assets_per_connection: optional("WEBSOCKET_MAX_ASSETS_PER_CONNECTION", :integer, 100)
+    max_assets_per_connection: optional("WEBSOCKET_MAX_ASSETS_PER_CONNECTION", :integer, 100),
+    # delay of the first backed-off retry when restoring a dead connection
+    # fails, in ms; doubles per consecutive failure
+    retry_base_ms: optional("WEBSOCKET_RETRY_BASE_MS", :integer, 1_000),
+    # ceiling for the restore retry delay, in ms
+    retry_max_ms: optional("WEBSOCKET_RETRY_MAX_MS", :integer, 30_000)
 end
 
 if config_env() == :prod do

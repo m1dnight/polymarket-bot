@@ -71,17 +71,23 @@ defmodule PolyBot.Parameters do
   Builds the argument keyword-list for `PolyBot.WebSocketManager.Worker`.
 
   Bundles the config-driven `:max_assets_per_connection`, the subscription
-  capacity of a single websocket connection.
+  capacity of a single websocket connection, with the `:retry_base_ms` /
+  `:retry_max_ms` backoff bounds used when restoring dead connections.
 
   ## Examples
 
       iex> websocket_worker_opts()
-      [max_assets_per_connection: 100]
+      [max_assets_per_connection: 100, retry_base_ms: 1000, retry_max_ms: 30000]
 
   """
   @spec websocket_worker_opts :: PolyBot.WebSocketManager.Worker.opts()
   def websocket_worker_opts do
-    [max_assets_per_connection: max_assets_per_connection()]
+    [
+      max_assets_per_connection: websocket_manager_env(:max_assets_per_connection),
+      retry_base_ms: websocket_manager_env(:retry_base_ms),
+      retry_max_ms: websocket_manager_env(:retry_max_ms)
+    ]
+  end
   end
 
   # ---------------------------------------------------------------------------#
@@ -91,10 +97,10 @@ defmodule PolyBot.Parameters do
   @spec interval_ms :: non_neg_integer()
   defp interval_ms, do: event_fetcher_env(:interval_ms)
 
-  @spec max_assets_per_connection :: pos_integer()
-  defp max_assets_per_connection do
+  @spec websocket_manager_env(atom()) :: term()
+  defp websocket_manager_env(key) do
     Application.fetch_env!(:poly_bot, :websocket_manager)
-    |> Keyword.fetch!(:max_assets_per_connection)
+    |> Keyword.fetch!(key)
   end
 
   @spec minimum_liquidity :: integer()
