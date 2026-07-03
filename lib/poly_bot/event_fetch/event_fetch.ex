@@ -10,6 +10,7 @@ defmodule PolyBot.EventFetch do
 
   require Logger
 
+  alias Phoenix.PubSub
   alias PolyBot.Contexts.Events
   alias Polymarket.Schemas.Event, as: GammaEvent
   alias Polymarket.Schemas.Market, as: GammaMarket
@@ -33,6 +34,11 @@ defmodule PolyBot.EventFetch do
   (e.g. `closed: false`) treats itself as authoritative over those events'
   markets. Only the structured event/market fields are stored; the full venue
   payload is not synced here.
+
+  Each stored chunk is announced on the `"events:refreshed"` PubSub topic as
+  `{:events_refreshed, count}` once its markets are committed —
+  `PolyBot.WebSocketManager.Worker` listens and subscribes any new tradable
+  assets without waiting for the sync to finish.
 
   ## Examples
 
@@ -79,6 +85,10 @@ defmodule PolyBot.EventFetch do
           do: market_attrs(market, event_id)
 
     Events.replace_markets(Map.values(id_by_external_id), market_rows)
+
+    # announce the chunk only after its markets are committed, so a resync
+    # triggered by this broadcast already sees them.
+    PubSub.broadcast(PolyBot.PubSub, "events:refreshed", {:events_refreshed, count})
 
     count
   end

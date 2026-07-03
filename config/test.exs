@@ -46,11 +46,14 @@ config :poly_bot, :event_fetcher,
   minimum_liquidity: 10_000,
   interval_ms: 0
 
-# The websocket worker only opens connections when subscribe/2 is called, so
-# the singleton stays off the network in tests.
+# The websocket worker only opens connections when subscribe/2 is called, and
+# `resync_from_db: false` keeps its resyncs (startup and every
+# "events:refreshed" broadcast) away from the sandboxed database, so the
+# singleton stays inert in tests.
 config :poly_bot, :websocket_manager,
   max_assets_per_connection: 100,
   retry_base_ms: 1_000,
-  retry_max_ms: 30_000
+  retry_max_ms: 30_000,
+  resync_from_db: false
 
 config :poly_bot, :dashboard, refresh_ms: 5_000

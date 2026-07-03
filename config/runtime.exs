@@ -45,7 +45,10 @@ if config_env() != :test do
     # fails, in ms; doubles per consecutive failure
     retry_base_ms: optional("WEBSOCKET_RETRY_BASE_MS", :integer, 1_000),
     # ceiling for the restore retry delay, in ms
-    retry_max_ms: optional("WEBSOCKET_RETRY_MAX_MS", :integer, 30_000)
+    retry_max_ms: optional("WEBSOCKET_RETRY_MAX_MS", :integer, 30_000),
+    # when false, resyncs subscribe nothing instead of querying the database
+    # for tradable markets; tests disable it to keep the singleton off the DB
+    resync_from_db: optional("WEBSOCKET_RESYNC_FROM_DB", :boolean, true)
 
   config :poly_bot, :dashboard,
     # interval between dashboard stat refreshes, in ms

@@ -10,6 +10,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
 
   use ExUnit.Case, async: true
 
+  alias Phoenix.PubSub
   alias PolyBot.WebSocketManager.Worker
 
   @moduletag :capture_log
@@ -153,6 +154,59 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert Worker.subscribe(worker, ["a"]) == :ok
       assert_receive {:subscribed, _, ["a"]}
       refute_receive {:connected, _}
+    end
+  end
+
+  # ---------------------------------------------------------------------------#
+  #                               events refresh                               #
+  # ---------------------------------------------------------------------------#
+
+  describe "events refresh" do
+    test "subscribes assets that appeared since the last event sync" do
+      assets = start_supervised!({Agent, fn -> ["a"] end}, id: :assets)
+      start_worker(initial_assets_fn: fn -> Agent.get(assets, & &1) end)
+
+      assert_receive {:connected, _pid}
+      assert_receive {:subscribed, _, ["a"]}
+
+      # a sync stored a new market and announces it.
+      Agent.update(assets, fn _ -> ["a", "b"] end)
+      PubSub.broadcast(PolyBot.PubSub, "events:refreshed", {:events_refreshed, 1})
+
+      assert_receive {:subscribed, _, ["b"]}
+    end
+
+    test "is a no-op when the refresh brings no new assets" do
+      worker = start_worker(initial_assets_fn: fn -> ["a"] end)
+
+      assert_receive {:connected, _pid}
+      assert_receive {:subscribed, _, ["a"]}
+
+      send(worker, {:events_refreshed, 1})
+
+      # synchronize on the worker having processed the refresh.
+      _ = Worker.sockets(worker)
+      refute_receive {:connected, _}
+      refute_receive {:subscribed, _, _}
+    end
+
+    test "stays up when the assets query fails" do
+      calls = start_supervised!({Agent, fn -> 0 end}, id: :calls)
+
+      assets_fn = fn ->
+        case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+          0 -> []
+          _ -> raise "db down"
+        end
+      end
+
+      worker = start_worker(initial_assets_fn: assets_fn)
+      _ = Worker.sockets(worker)
+
+      send(worker, {:events_refreshed, 1})
+
+      # the raise is rescued: the worker still answers and holds no pool.
+      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 0}
     end
   end
 

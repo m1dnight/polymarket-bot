@@ -13,6 +13,12 @@ defmodule PolyBot.WebSocketManager.Worker do
   `:initial_assets_fn` (wired to the tradable markets already in the database
   by `PolyBot.Parameters.websocket_worker_opts/0`), reusing the same parking
   and backoff when that first subscription fails.
+
+  The worker also listens on the `"events:refreshed"` PubSub topic, where
+  `PolyBot.EventFetch` announces every stored chunk of events. Each broadcast
+  re-runs `:initial_assets_fn` and subscribes the assets that are new, so
+  markets discovered by later syncs get a live subscription without a
+  restart.
   """
 
   use GenServer
@@ -20,6 +26,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   require Logger
 
+  alias Phoenix.PubSub
   alias PolyBot.WebSocketManager
 
   @default_max_assets_per_connection 2500
@@ -100,9 +107,10 @@ defmodule PolyBot.WebSocketManager.Worker do
       tests pass `nil` for an unnamed instance.
     * `:connect_fn` / `:subscribe_fn` - injection points for tests, defaulting
       to `PolyBot.WebSocketManager.connect/0` and `subscribe/2`.
-    * `:initial_assets_fn` - returns the asset ids subscribed right after
-      startup (default: a function returning `[]`, i.e. no initial
-      subscription). The app wires in the database-backed query via
+    * `:initial_assets_fn` - returns the asset ids the pool should carry; run
+      right after startup and again on every `"events:refreshed"` broadcast
+      (default: a function returning `[]`, i.e. no initial subscription). The
+      app wires in the database-backed query via
       `PolyBot.Parameters.websocket_worker_opts/0`.
   """
   @type opts :: [
@@ -182,6 +190,9 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   @impl true
   def init(opts) do
+    # subscribe to events about events being refreshed
+    PubSub.subscribe(PolyBot.PubSub, "events:refreshed")
+
     state = %__MODULE__{
       max_assets_per_connection:
         Keyword.get(opts, :max_assets_per_connection, @default_max_assets_per_connection),
@@ -202,20 +213,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   # when connecting fails the ids are parked and come back through the usual
   # backed-off restore.
   def handle_continue(:initial_subscribe, state) do
-    asset_ids = state.initial_assets_fn.()
-
-    case pool_try_subscribe_assets(state, asset_ids) do
-      {:ok, state} ->
-        {:noreply, state}
-
-      {:error, reason, state} ->
-        Logger.warning(
-          "Initial websocket subscription failed: #{inspect(reason)}; " <>
-            "parking #{length(asset_ids)} assets for restore."
-        )
-
-        {:noreply, schedule_restore(state, MapSet.new(asset_ids))}
-    end
+    {:noreply, resync_assets(state)}
   end
 
   @impl true
@@ -267,6 +265,21 @@ defmodule PolyBot.WebSocketManager.Worker do
     end
   end
 
+  # the event fetcher stored a chunk of events; subscribe any tradable assets
+  # that are new. A sync broadcasts once per chunk in quick succession, so
+  # queued refresh messages are drained and covered by this single resync.
+  def handle_info({:events_refreshed, _count}, state) do
+    flush_events_refreshed()
+    {:noreply, resync_assets(state)}
+  rescue
+    # the pool carries live subscriptions; a failing resync (e.g. the assets
+    # query hitting a DB hiccup) must not tear them down. The next refresh
+    # simply retries.
+    error ->
+      Logger.warning("Websocket resync failed: #{Exception.message(error)}")
+      {:noreply, state}
+  end
+
   def handle_info(:restore_pending, state) do
     state = %{state | retry_ref: nil}
 
@@ -301,6 +314,41 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # ---------------------------------------------------------------------------
   # Pool Management
+
+  # Runs `initial_assets_fn` and subscribes the ids that are new: seeds the
+  # pool at startup and picks up assets stored by later event syncs. Ids
+  # parked for restore are skipped — that restore is already bringing them
+  # back. When opening a connection fails, the new ids are parked for the
+  # usual backed-off restore.
+  @spec resync_assets(t()) :: t()
+  defp resync_assets(state) do
+    asset_ids =
+      Enum.reject(state.initial_assets_fn.(), &MapSet.member?(state.pending_assets, &1))
+
+    case pool_try_subscribe_assets(state, asset_ids) do
+      {:ok, state} ->
+        state
+
+      {:error, reason, state} ->
+        parked = MapSet.difference(MapSet.new(asset_ids), state.subscribed_assets)
+
+        Logger.warning(
+          "Websocket subscription resync failed: #{inspect(reason)}; " <>
+            "parking #{MapSet.size(parked)} assets for restore."
+        )
+
+        schedule_restore(state, parked)
+    end
+  end
+
+  # drains queued refresh notifications; the resync about to run covers them.
+  defp flush_events_refreshed do
+    receive do
+      {:events_refreshed, _count} -> flush_events_refreshed()
+    after
+      0 -> :ok
+    end
+  end
 
   # Tries to subscribe `asset_ids`: drops ids that are already subscribed,
   # ensures capacity for the rest, then spreads them over the sockets,
