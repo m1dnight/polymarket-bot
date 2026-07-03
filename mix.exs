@@ -84,7 +84,11 @@ defmodule PolyBot.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:ex_polymarket, git: "https://github.com/m1dnight/ex-polymarket.git"}
+      {:ex_polymarket, git: "https://github.com/m1dnight/ex-polymarket.git"},
+      # dev
+      {:quokka, "~> 2.13", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -107,7 +111,7 @@ defmodule PolyBot.MixProject do
         "esbuild poly_bot --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["credo --strict", "dialyzer","compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end
 end
