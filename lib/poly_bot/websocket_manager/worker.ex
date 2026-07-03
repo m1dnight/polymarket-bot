@@ -199,13 +199,13 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   @impl true
   # handle a disconnected websocket
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+  def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
     case Map.pop(state.sockets, pid) do
       {nil, _sockets} ->
         {:noreply, state}
 
       {socket, sockets} ->
-        socket_log_disconnect(socket)
+        socket_log_disconnect(socket, reason)
         {:noreply, schedule_restore(%{state | sockets: sockets}, socket.assets)}
     end
   end
@@ -310,6 +310,9 @@ defmodule PolyBot.WebSocketManager.Worker do
   # exist.
   @spec socket_add(t()) :: {:ok, socket_state()} | {:error, term()}
   defp socket_add(state) do
+    # fire an event to log that a websocket was created.
+    :telemetry.execute([:poly_bot, :websocket, :connect], %{}, %{})
+
     case state.connect_fn.() do
       {:ok, socket} ->
         Process.monitor(socket)
@@ -329,9 +332,14 @@ defmodule PolyBot.WebSocketManager.Worker do
     Map.update!(socket, :assets, &MapSet.union(&1, MapSet.new(asset_ids)))
   end
 
-  defp socket_log_disconnect(socket) do
+  defp socket_log_disconnect(socket, reason) do
     now = DateTime.utc_now()
     lifespan = DateTime.diff(now, socket.created, :minute)
+
+    :telemetry.execute([:poly_bot, :websocket, :disconnect], %{}, %{
+      lifespan: lifespan,
+      reason: reason
+    })
 
     Logger.warning("""
     Socket disconnected after #{lifespan} minutes. Subscribed to #{MapSet.size(socket.assets)} assets.

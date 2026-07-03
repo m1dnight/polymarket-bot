@@ -11,6 +11,8 @@ defmodule PolyBot.Application do
 
   @impl true
   def start(_type, _args) do
+    PolyBot.EventHandler.attach()
+
     children = [
       PolyBotWeb.Telemetry,
       PolyBot.Repo,
