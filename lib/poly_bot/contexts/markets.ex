@@ -46,6 +46,30 @@ defmodule PolyBot.Contexts.Markets do
   end
 
   @doc """
+  Return the CLOB asset ids of every tradable market — active, not closed,
+  accepting orders, order book enabled — flattened into one list, as a single
+  query. Markets missing any of those flags (or without token ids) are
+  excluded. Used to seed the websocket subscriptions on startup.
+
+  ## Examples
+
+      iex> list_subscribable_asset_ids()
+      ["71321045679252212594626385532706912345", ...]
+
+  """
+  @spec list_subscribable_asset_ids() :: [String.t()]
+  def list_subscribable_asset_ids do
+    from(m in Market,
+      where:
+        m.active and not m.closed and m.accepting_orders and m.enable_order_book and
+          not is_nil(m.clob_token_ids),
+      select: m.clob_token_ids
+    )
+    |> Repo.all()
+    |> List.flatten()
+  end
+
+  @doc """
   Fetch the market with `id`, raising `Ecto.NoResultsError` if absent.
 
   ## Examples

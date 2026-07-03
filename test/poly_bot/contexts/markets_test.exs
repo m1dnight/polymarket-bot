@@ -32,6 +32,41 @@ defmodule PolyBot.Contexts.MarketsTest do
     end
   end
 
+  describe "list_subscribable_asset_ids/0" do
+    @tradable %{active: true, closed: false, accepting_orders: true, enable_order_book: true}
+
+    test "returns [] when there are no markets" do
+      assert Markets.list_subscribable_asset_ids() == []
+    end
+
+    test "flattens the token ids of tradable markets into one list" do
+      Fixtures.market_fixture(Map.put(@tradable, :clob_token_ids, ["tok-1", "tok-2"]))
+      Fixtures.market_fixture(Map.put(@tradable, :clob_token_ids, ["tok-3"]))
+
+      assert Enum.sort(Markets.list_subscribable_asset_ids()) == ["tok-1", "tok-2", "tok-3"]
+    end
+
+    test "excludes markets that are not tradable or miss flags/token ids" do
+      for exclusion <- [
+            %{active: false},
+            %{closed: true},
+            %{accepting_orders: false},
+            %{accepting_orders: nil},
+            %{enable_order_book: false},
+            %{clob_token_ids: nil}
+          ] do
+        @tradable
+        |> Map.put(:clob_token_ids, ["tok-excluded"])
+        |> Map.merge(exclusion)
+        |> Fixtures.market_fixture()
+      end
+
+      Fixtures.market_fixture(Map.put(@tradable, :clob_token_ids, ["tok-live"]))
+
+      assert Markets.list_subscribable_asset_ids() == ["tok-live"]
+    end
+  end
+
   describe "get_market!/1" do
     test "returns the market with the given id" do
       market = Fixtures.market_fixture()

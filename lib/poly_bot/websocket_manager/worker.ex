@@ -8,6 +8,11 @@ defmodule PolyBot.WebSocketManager.Worker do
   connections are detected through monitors; their assets are parked in
   `:pending_assets` and resubscribed on a fresh connection, retrying with
   exponential backoff while connecting fails.
+
+  On startup the pool seeds itself with the asset ids returned by
+  `:initial_assets_fn` (wired to the tradable markets already in the database
+  by `PolyBot.Parameters.websocket_worker_opts/0`), reusing the same parking
+  and backoff when that first subscription fails.
   """
 
   use GenServer
@@ -17,7 +22,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   alias PolyBot.WebSocketManager
 
-  @default_max_assets_per_connection 100
+  @default_max_assets_per_connection 2500
   @default_retry_base_ms 1_000
   @default_retry_max_ms 30_000
 
@@ -65,7 +70,8 @@ defmodule PolyBot.WebSocketManager.Worker do
       * `:retry_attempt` - consecutive failed restore attempts.
       * `:retry_ref` - timer of the scheduled restore, if any.
       * `:retry_base_ms` / `:retry_max_ms` - restore backoff bounds.
-      * `:connect_fn` / `:subscribe_fn` - see `t:opts/0`.
+      * `:connect_fn` / `:subscribe_fn` / `:initial_assets_fn` - see
+        `t:opts/0`.
     """
 
     field :sockets, sockets(), default: %{}
@@ -78,6 +84,7 @@ defmodule PolyBot.WebSocketManager.Worker do
     field :retry_max_ms, pos_integer(), default: @default_retry_max_ms
     field :connect_fn, (-> DynamicSupervisor.on_start_child())
     field :subscribe_fn, (pid(), [asset_id()] -> :ok)
+    field :initial_assets_fn, (-> [asset_id()])
   end
 
   @typedoc """
@@ -93,6 +100,10 @@ defmodule PolyBot.WebSocketManager.Worker do
       tests pass `nil` for an unnamed instance.
     * `:connect_fn` / `:subscribe_fn` - injection points for tests, defaulting
       to `PolyBot.WebSocketManager.connect/0` and `subscribe/2`.
+    * `:initial_assets_fn` - returns the asset ids subscribed right after
+      startup (default: a function returning `[]`, i.e. no initial
+      subscription). The app wires in the database-backed query via
+      `PolyBot.Parameters.websocket_worker_opts/0`.
   """
   @type opts :: [
           max_assets_per_connection: pos_integer(),
@@ -100,7 +111,8 @@ defmodule PolyBot.WebSocketManager.Worker do
           retry_max_ms: pos_integer(),
           name: GenServer.name() | nil,
           connect_fn: (-> DynamicSupervisor.on_start_child()),
-          subscribe_fn: (pid(), [asset_id()] -> :ok)
+          subscribe_fn: (pid(), [asset_id()] -> :ok),
+          initial_assets_fn: (-> [asset_id()])
         ]
 
   # ---------------------------------------------------------------------------#
@@ -170,15 +182,40 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   @impl true
   def init(opts) do
-    {:ok,
-     %__MODULE__{
-       max_assets_per_connection:
-         Keyword.get(opts, :max_assets_per_connection, @default_max_assets_per_connection),
-       retry_base_ms: Keyword.get(opts, :retry_base_ms, @default_retry_base_ms),
-       retry_max_ms: Keyword.get(opts, :retry_max_ms, @default_retry_max_ms),
-       connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
-       subscribe_fn: Keyword.get(opts, :subscribe_fn, &WebSocketManager.subscribe/2)
-     }}
+    state = %__MODULE__{
+      max_assets_per_connection:
+        Keyword.get(opts, :max_assets_per_connection, @default_max_assets_per_connection),
+      retry_base_ms: Keyword.get(opts, :retry_base_ms, @default_retry_base_ms),
+      retry_max_ms: Keyword.get(opts, :retry_max_ms, @default_retry_max_ms),
+      connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),
+      subscribe_fn: Keyword.get(opts, :subscribe_fn, &WebSocketManager.subscribe/2),
+      initial_assets_fn: Keyword.get(opts, :initial_assets_fn, fn -> [] end)
+    }
+
+    # the initial subscription runs after init so it doesn't hold up the rest
+    # of the supervision tree.
+    {:ok, state, {:continue, :initial_subscribe}}
+  end
+
+  @impl true
+  # Seed the pool with the initial asset ids. Runs before any other message;
+  # when connecting fails the ids are parked and come back through the usual
+  # backed-off restore.
+  def handle_continue(:initial_subscribe, state) do
+    asset_ids = state.initial_assets_fn.()
+
+    case pool_try_subscribe_assets(state, asset_ids) do
+      {:ok, state} ->
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        Logger.warning(
+          "Initial websocket subscription failed: #{inspect(reason)}; " <>
+            "parking #{length(asset_ids)} assets for restore."
+        )
+
+        {:noreply, schedule_restore(state, MapSet.new(asset_ids))}
+    end
   end
 
   @impl true

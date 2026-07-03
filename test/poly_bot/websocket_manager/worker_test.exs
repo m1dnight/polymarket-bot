@@ -15,6 +15,46 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
   @moduletag :capture_log
 
   # ---------------------------------------------------------------------------#
+  #                            initial subscription                            #
+  # ---------------------------------------------------------------------------#
+
+  describe "initial subscription" do
+    test "subscribes the assets returned by initial_assets_fn on startup" do
+      worker = start_worker(initial_assets_fn: fn -> ["a", "b"] end)
+
+      assert_receive {:connected, pid}
+      assert_receive {:subscribed, ^pid, ["a", "b"]}
+
+      # the seeded ids count as already subscribed for later calls.
+      assert Worker.subscribe(worker, ["a", "b"]) == :ok
+      refute_receive {:subscribed, _, _}
+    end
+
+    test "opens no connection when there are no initial assets" do
+      worker = start_worker([])
+
+      # synchronize on the worker having processed the initial subscribe.
+      _ = Worker.sockets(worker)
+      refute_receive {:connected, _}
+    end
+
+    test "parks the initial assets for restore when connecting fails" do
+      worker =
+        start_worker(
+          [initial_assets_fn: fn -> ["a"] end, retry_base_ms: 10, retry_max_ms: 40],
+          [{:error, :econnrefused}]
+        )
+
+      # the seed attempt fails; the immediate restore retry succeeds once the
+      # script is exhausted.
+      assert_receive :connect_failed
+      assert_receive {:connected, pid}, 500
+      assert_receive {:subscribed, ^pid, ["a"]}, 500
+      assert Worker.sockets(worker).pending_asset_count == 0
+    end
+  end
+
+  # ---------------------------------------------------------------------------#
   #                                subscribe/2                                 #
   # ---------------------------------------------------------------------------#
 
