@@ -9,10 +9,11 @@
 
   <section id="websocket-stats" class="space-y-2">
     <h2 class="text-sm font-semibold">Websocket</h2>
-    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
       <.stat id="stat-connections" label="Connections" value={@connection_count} />
       <.stat id="stat-avg-lifespan" label="Avg lifespan" value={format_duration(@avg_lifespan)} />
       <.stat id="stat-avg-assets" label="Avg assets / connection" value={@avg_assets || "–"} />
+      <.stat id="stat-pending-assets" label="Pending resubscribe" value={@pending_asset_count} />
     </div>
   </section>
 </Layouts.app>

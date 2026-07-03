@@ -3,9 +3,15 @@ defmodule PolyBotWeb.DashboardLive do
   Minimal operational dashboard for the bot: database counts (events, markets)
   and aggregate websocket pool stats, refreshed every
   `PolyBot.Parameters.dashboard_refresh_ms/0`.
+
+  The pool read can stall behind an in-flight subscribe on the worker, so it is
+  fetched with `start_async/3` — the database tiles keep refreshing and the
+  socket tiles hold their last values until the fetch returns.
   """
 
   use PolyBotWeb, :live_view
+
+  require Logger
 
   alias PolyBot.Contexts.Events
   alias PolyBot.Contexts.Markets
@@ -18,12 +24,39 @@ defmodule PolyBotWeb.DashboardLive do
       :timer.send_interval(Parameters.dashboard_refresh_ms(), :refresh)
     end
 
-    {:ok, socket |> assign(:page_title, "Dashboard") |> refresh()}
+    socket =
+      assign(socket,
+        page_title: "Dashboard",
+        connection_count: 0,
+        avg_lifespan: nil,
+        avg_assets: nil,
+        pending_asset_count: 0,
+        sockets_loading?: false
+      )
+
+    {:ok, refresh(socket)}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
     {:noreply, refresh(socket)}
+  end
+
+  @impl true
+  def handle_async(:sockets, {:ok, snapshot}, socket) do
+    {:noreply,
+     assign(socket,
+       sockets_loading?: false,
+       connection_count: length(snapshot.sockets),
+       avg_lifespan: avg_lifespan(snapshot.sockets),
+       avg_assets: avg_assets(snapshot.sockets),
+       pending_asset_count: snapshot.pending_asset_count
+     )}
+  end
+
+  def handle_async(:sockets, {:exit, reason}, socket) do
+    Logger.warning("Dashboard websocket pool fetch failed: #{inspect(reason)}")
+    {:noreply, assign(socket, :sockets_loading?, false)}
   end
 
   # ---------------------------------------------------------------------------#
@@ -48,15 +81,22 @@ defmodule PolyBotWeb.DashboardLive do
   # ---------------------------------------------------------------------------#
 
   defp refresh(socket) do
-    sockets = Map.values(Worker.sockets())
-
-    assign(socket,
+    socket
+    |> assign(
       event_count: Events.count_events(),
-      market_count: Markets.count_markets(),
-      connection_count: length(sockets),
-      avg_lifespan: avg_lifespan(sockets),
-      avg_assets: avg_assets(sockets)
+      market_count: Markets.count_markets()
     )
+    |> refresh_sockets()
+  end
+
+  # At most one pool fetch is in flight: a tick that lands mid-fetch skips it
+  # rather than queueing another call on a busy worker.
+  defp refresh_sockets(%{assigns: %{sockets_loading?: true}} = socket), do: socket
+
+  defp refresh_sockets(socket) do
+    socket
+    |> assign(:sockets_loading?, true)
+    |> start_async(:sockets, fn -> Worker.sockets() end)
   end
 
   # Average connection age in whole seconds, or nil when the pool is empty.

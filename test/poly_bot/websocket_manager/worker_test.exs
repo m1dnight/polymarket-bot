@@ -29,7 +29,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert_receive {:subscribed, _, batch1}
       assert_receive {:subscribed, _, batch2}
       assert Enum.sort(batch1 ++ batch2) == ["a", "b", "c"]
-      assert map_size(Worker.sockets(worker)) == 2
+      assert length(Worker.sockets(worker).sockets) == 2
     end
 
     test "fills free capacity before opening a new connection" do
@@ -42,7 +42,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert Worker.subscribe(worker, ["b"]) == :ok
       assert_receive {:subscribed, _, ["b"]}
       refute_receive {:connected, _}
-      assert map_size(Worker.sockets(worker)) == 1
+      assert length(Worker.sockets(worker).sockets) == 1
     end
 
     test "returns the error and subscribes nothing when connecting fails" do
@@ -51,7 +51,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert Worker.subscribe(worker, ["a"]) == {:error, :econnrefused}
       assert_receive :connect_failed
       refute_receive {:subscribed, _, _}
-      assert Worker.sockets(worker) == %{}
+      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 0}
     end
 
     test "keeps connections opened before the failure for the next call" do
@@ -86,7 +86,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert_receive {:connected, new_pid}
       assert_receive {:subscribed, ^new_pid, assets}
       assert Enum.sort(assets) == ["a", "b"]
-      assert Map.keys(Worker.sockets(worker)) == [new_pid]
+      assert Enum.map(Worker.sockets(worker).sockets, & &1.socket) == [new_pid]
     end
 
     test "restores the assets of several dead connections" do
@@ -126,7 +126,29 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       assert_receive :connect_failed, 500
       assert_receive {:connected, new_pid}, 500
       assert_receive {:subscribed, ^new_pid, ["a"]}
-      assert Map.keys(Worker.sockets(worker)) == [new_pid]
+
+      snapshot = Worker.sockets(worker)
+      assert Enum.map(snapshot.sockets, & &1.socket) == [new_pid]
+      assert snapshot.pending_asset_count == 0
+    end
+
+    test "counts assets waiting to be resubscribed while restoring fails" do
+      worker =
+        start_worker(
+          [retry_base_ms: 60_000, retry_max_ms: 60_000],
+          [:ok, {:error, :econnrefused}]
+        )
+
+      assert Worker.subscribe(worker, ["a"]) == :ok
+      assert_receive {:connected, pid}
+      assert_receive {:subscribed, ^pid, ["a"]}
+
+      Process.exit(pid, :kill)
+
+      # the immediate restore attempt fails and the backed-off retry is far
+      # in the future, so the asset stays parked.
+      assert_receive :connect_failed, 500
+      assert Worker.sockets(worker).pending_asset_count == 1
     end
 
     test "does not replace a dead connection that carried no assets" do
@@ -139,7 +161,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
       Process.exit(pid, :kill)
 
       refute_receive {:connected, _}
-      assert Worker.sockets(worker) == %{}
+      assert Worker.sockets(worker) == %{sockets: [], pending_asset_count: 0}
     end
   end
 

@@ -40,6 +40,18 @@ defmodule PolyBot.WebSocketManager.Worker do
   @typedoc "The connection pool, keyed by connection pid."
   @type sockets :: %{pid() => socket_state()}
 
+  @typedoc """
+  Snapshot of the pool returned by `sockets/1`.
+
+    * `:sockets` - the current connection pool entries.
+    * `:pending_asset_count` - number of assets parked for resubscription
+      because their connection died and restoring is still retrying.
+  """
+  @type snapshot :: %{
+          sockets: [socket_state()],
+          pending_asset_count: non_neg_integer()
+        }
+
   typedstruct do
     @typedoc """
     The worker state.
@@ -127,19 +139,21 @@ defmodule PolyBot.WebSocketManager.Worker do
   end
 
   @doc """
-  Return the current connection pool, keyed by connection pid.
+  Return a `t:snapshot/0` of the pool: the list of connections and the number
+  of assets waiting to be resubscribed.
 
-  Each value is a `t:socket_state/0`: the connection pid, when it was opened,
-  and the asset ids it carries. A cheap state read, safe to poll (e.g. from the
-  dashboard).
+  The read itself is cheap but waits (without timeout) behind whatever the
+  worker is busy with, e.g. an in-flight subscribe — call it from a process
+  that can afford to block, like the dashboard's async fetch task.
 
   ## Examples
 
       iex> PolyBot.WebSocketManager.Worker.sockets()
-      %{pid => %{socket: pid, created: ~U[2026-07-03 10:00:00Z], assets: MapSet.new()}}
+      %{sockets: [%{socket: pid, created: ~U[2026-07-03 10:00:00Z], assets: MapSet.new()}],
+        pending_asset_count: 0}
 
   """
-  @spec sockets(GenServer.server()) :: sockets()
+  @spec sockets(GenServer.server()) :: snapshot()
   def sockets(server \\ __MODULE__) do
     GenServer.call(server, :sockets, :infinity)
   end
@@ -175,7 +189,12 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   # return the list of sockets currently in use.
   def handle_call(:sockets, _from, state) do
-    {:reply, state.sockets, state}
+    snapshot = %{
+      sockets: Map.values(state.sockets),
+      pending_asset_count: MapSet.size(state.pending_assets)
+    }
+
+    {:reply, snapshot, state}
   end
 
   @impl true
