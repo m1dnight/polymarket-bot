@@ -69,6 +69,9 @@ defmodule PolyBot.WebSocketManager do
   # Builds the CLOB market-channel `subscribe` payload for a single asset id.
   @spec subscribe_message([String.t()]) :: String.t()
   defp subscribe_message(asset_ids) do
+    count = Enum.count(asset_ids)
+    :telemetry.execute([:poly_bot, :websocket, :subscribe], %{count: count}, %{})
+
     %{
       operation: "subscribe",
       assets_ids: asset_ids,

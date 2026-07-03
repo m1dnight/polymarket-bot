@@ -22,6 +22,10 @@ defmodule PolyBotWeb.Telemetry do
 
   def metrics do
     [
+      # how often disconnects happen
+      counter("poly_bot.websocket.connect.count"),
+      counter("poly_bot.websocket.disconnect.count"),
+      counter("poly_bot.websocket.subscribe.count"),
       # Phoenix Metrics
       summary("phoenix.endpoint.start.system_time",
         unit: {:native, :millisecond}
@@ -80,11 +84,7 @@ defmodule PolyBotWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io"),
-
-      # how often disconnects happen
-      counter("poly_bot.websocket.connect.count"),
-      counter("poly_bot.websocket.disconnect.count")
+      summary("vm.total_run_queue_lengths.io")
     ]
   end
 
