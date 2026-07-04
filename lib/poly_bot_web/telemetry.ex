@@ -2,6 +2,9 @@ defmodule PolyBotWeb.Telemetry do
   use Supervisor
   import Telemetry.Metrics
 
+  # also the window the websocket message rate is averaged over.
+  @poller_period_ms 10_000
+
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
@@ -12,7 +15,7 @@ defmodule PolyBotWeb.Telemetry do
       [
         # Telemetry poller will execute the given period measurements
         # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
-        {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
+        {:telemetry_poller, measurements: periodic_measurements(), period: @poller_period_ms}
         # Add reporters as children of your supervision tree.
         # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
       ] ++ history_child()
@@ -25,6 +28,10 @@ defmodule PolyBotWeb.Telemetry do
       # how often disconnects happen
       counter("poly_bot.websocket.connect.count"),
       counter("poly_bot.websocket.disconnect.count"),
+      # incoming messages per second, averaged over the poller period.
+      last_value("poly_bot.websocket.messages.rate",
+        description: "Websocket messages per second"
+      ),
       sum("poly_bot.websocket.subscribe.count"),
       # assets parked after a disconnect vs. resubscribed; the difference is
       # how many are currently outstanding.
@@ -105,7 +112,19 @@ defmodule PolyBotWeb.Telemetry do
     [
       # A module, function and arguments to be invoked periodically.
       # This function must call :telemetry.execute/3 and a metric must be added above.
-      # {PolyBotWeb, :count_users, []}
+      {__MODULE__, :measure_ws_messages, []}
     ]
+  end
+
+  @doc false
+  # Emits the websocket messages received since the last poll and their
+  # per-second rate. Runs only in the poller process: `Stats.delta/1` is
+  # single-consumer.
+  @spec measure_ws_messages() :: :ok
+  def measure_ws_messages do
+    delta = PolyBot.Stats.delta(:ws_messages)
+    rate = delta * 1_000 / @poller_period_ms
+
+    :telemetry.execute([:poly_bot, :websocket, :messages], %{count: delta, rate: rate}, %{})
   end
 end

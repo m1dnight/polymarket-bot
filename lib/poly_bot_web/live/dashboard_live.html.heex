@@ -31,6 +31,7 @@
         value={format_duration(@avg_lifespan)}
       />
       <.stat_row id="stat-avg-assets" label="Avg assets / conn" value={@avg_assets || "–"} />
+      <.stat_row id="stat-msg-rate" label="Messages / s" value={@msg_rate || "–"} />
     </.panel>
 
     <.panel id="event-store-stats" title="Event store">

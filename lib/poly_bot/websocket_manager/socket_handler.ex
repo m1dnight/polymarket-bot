@@ -4,7 +4,8 @@ defmodule PolyBot.WebSocketManager.Handler do
 
   Bumps the `:ws_messages` counter in `PolyBot.Stats` for every event and does
   nothing else — it runs inside the socket process, so any heavier work here
-  would slow down every connection.
+  would slow down every connection. The counter is read as a rate by the
+  telemetry poller and the dashboard.
   """
 
   @behaviour Polymarket.WebSocket.Handler

@@ -12,8 +12,10 @@ defmodule PolyBot.Stats do
   unknown counter name fails the build.
 
   Counters are monotonic. Readers that want a rate keep the previous total and
-  diff it; there is deliberately no reset (a read-then-zero on `:counters`
-  would lose concurrent increments).
+  diff it (see `get/1`), or use `delta/1`, which keeps that previous total in a
+  shadow cell of the array — but supports only a single consumer. There is
+  deliberately no reset (a read-then-zero on `:counters` would lose concurrent
+  increments).
 
   Callers of `increase/2` must `require` this module (it is a macro):
 
@@ -52,7 +54,9 @@ defmodule PolyBot.Stats do
   """
   @spec init() :: :ok
   def init do
-    :persistent_term.put(@pt_key, :counters.new(length(@counters), [:write_concurrency]))
+    # cells 1..n are the live counters; cells n+1..2n hold the last snapshot
+    # taken by `delta/1`.
+    :persistent_term.put(@pt_key, :counters.new(2 * length(@counters), [:write_concurrency]))
   end
 
   @doc """
@@ -94,6 +98,36 @@ defmodule PolyBot.Stats do
   for {name, index} <- Enum.with_index(@counters, 1) do
     def get(unquote(name)) do
       :counters.get(:persistent_term.get(@pt_key), unquote(index))
+    end
+  end
+
+  @doc """
+  Return the number of increments to counter `name` since the previous
+  `delta/1` call (or since `init/0` for the first call).
+
+  Single consumer only: the previous total lives in one shadow cell per
+  counter, so concurrent callers would steal each other's windows. Used by the
+  telemetry poller (`PolyBotWeb.Telemetry`) to emit a message rate; any other
+  reader should diff `get/1` totals itself.
+
+  ## Examples
+
+      iex> PolyBot.Stats.delta(:ws_messages)
+      42
+
+  """
+  @spec delta(counter()) :: integer()
+  def delta(name)
+
+  for {name, index} <- Enum.with_index(@counters, 1) do
+    shadow_index = index + length(@counters)
+
+    def delta(unquote(name)) do
+      ref = :persistent_term.get(@pt_key)
+      total = :counters.get(ref, unquote(index))
+      last = :counters.get(ref, unquote(shadow_index))
+      :counters.put(ref, unquote(shadow_index), total)
+      total - last
     end
   end
 

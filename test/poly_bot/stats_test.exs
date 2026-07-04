@@ -28,6 +28,19 @@ defmodule PolyBot.StatsTest do
       assert Stats.get(:ws_messages) == 7
     end
 
+    test "delta/1 returns the increments since the previous delta call" do
+      Stats.increase(:ws_messages, 5)
+
+      assert Stats.delta(:ws_messages) == 5
+      assert Stats.delta(:ws_messages) == 0
+
+      Stats.increase(:ws_messages, 2)
+
+      assert Stats.delta(:ws_messages) == 2
+      # delta reads don't affect the running total.
+      assert Stats.get(:ws_messages) == 7
+    end
+
     test "all/0 returns a map of every counter's total" do
       assert Stats.all() == %{ws_messages: 0}
 

@@ -17,6 +17,7 @@ defmodule PolyBotWeb.DashboardLive do
   alias PolyBot.Contexts.Events
   alias PolyBot.Contexts.Markets
   alias PolyBot.Parameters
+  alias PolyBot.Stats
   alias PolyBot.WebSocketManager.Worker
 
   @impl true
@@ -32,7 +33,10 @@ defmodule PolyBotWeb.DashboardLive do
         avg_lifespan: nil,
         avg_assets: nil,
         pending_asset_count: 0,
-        sockets_loading?: false
+        sockets_loading?: false,
+        msg_rate: nil,
+        last_msg_total: nil,
+        last_msg_at: nil
       )
 
     {:ok, refresh(socket)}
@@ -114,7 +118,28 @@ defmodule PolyBotWeb.DashboardLive do
       market_count: Markets.count_markets(),
       lifespan_stats: EventLog.websocket_lifespan_stats()
     )
+    |> refresh_msg_rate()
     |> refresh_sockets()
+  end
+
+  # Messages/s over the last refresh interval, diffed from the monotonic
+  # `PolyBot.Stats` total (`delta/1` is reserved for the telemetry poller).
+  # The first tick only records the baseline, so the rate shows as "–".
+  defp refresh_msg_rate(socket) do
+    total = Stats.get(:ws_messages)
+    now = System.monotonic_time(:millisecond)
+
+    rate =
+      case socket.assigns do
+        %{last_msg_total: last_total, last_msg_at: last_at}
+        when is_integer(last_at) and now > last_at ->
+          Float.round((total - last_total) * 1_000 / (now - last_at), 1)
+
+        _ ->
+          nil
+      end
+
+    assign(socket, msg_rate: rate, last_msg_total: total, last_msg_at: now)
   end
 
   # At most one pool fetch is in flight: a tick that lands mid-fetch skips it
