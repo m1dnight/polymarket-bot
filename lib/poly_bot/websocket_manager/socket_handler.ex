@@ -1,13 +1,15 @@
 defmodule PolyBot.WebSocketManager.Handler do
   @moduledoc """
-  Websocket handler that records which assets have produced data.
+  Websocket handler that counts incoming messages.
 
-  Inserts a `{{socket_pid, asset_id}}` row into the `:probe_seen_assets` ETS
-  table for every event that names an asset, and does nothing else — it runs
-  inside the socket process, so any heavier work here would skew the probe.
+  Bumps the `:ws_messages` counter in `PolyBot.Stats` for every event and does
+  nothing else — it runs inside the socket process, so any heavier work here
+  would slow down every connection.
   """
 
   @behaviour Polymarket.WebSocket.Handler
+
+  require PolyBot.Stats, as: Stats
 
   alias Polymarket.WebSocket
   alias Polymarket.WebSocket.Handler
@@ -15,7 +17,7 @@ defmodule PolyBot.WebSocketManager.Handler do
   @impl Handler
   @spec handle_event(Handler.event(), WebSocket.t()) :: {:noreply, WebSocket.t()}
   def handle_event(_event, %WebSocket{} = state) do
-    # IO.inspect(event, label: "event")
+    Stats.increase(:ws_messages)
     {:noreply, state}
   end
 end

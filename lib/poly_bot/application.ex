@@ -12,6 +12,8 @@ defmodule PolyBot.Application do
   @impl true
   def start(_type, _args) do
     PolyBot.EventHandler.attach()
+    # counters must exist before any child process increments them.
+    PolyBot.Stats.init()
 
     children = [
       PolyBotWeb.Telemetry,
