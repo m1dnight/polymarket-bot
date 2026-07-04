@@ -1,22 +1,32 @@
 defmodule PolyBot.WebSocketManager.Handler do
   @moduledoc """
-  Websocket handler that counts incoming messages.
+  Websocket handler for the Polymarket market feed.
 
-  Bumps the `:ws_messages` counter in `PolyBot.Stats` for every event and does
-  nothing else — it runs inside the socket process, so any heavier work here
-  would slow down every connection. The counter is read as a rate by the
-  telemetry poller and the dashboard.
+  Runs inside the socket process, so it stays deliberately thin: every event
+  bumps the `:ws_messages` counter in `PolyBot.Stats`, and `price_change`
+  events are additionally recorded into the top-of-book table via
+  `PolyBot.MarketData.record_price_changes/1` (one batched ETS insert plus
+  dirty notifications). All other event types are counted but otherwise
+  ignored for now.
   """
 
   @behaviour Polymarket.WebSocket.Handler
 
   require PolyBot.Stats, as: Stats
 
+  alias PolyBot.MarketData
+  alias Polymarket.Schemas.PriceChangeEvent
   alias Polymarket.WebSocket
   alias Polymarket.WebSocket.Handler
 
   @impl Handler
   @spec handle_event(Handler.event(), WebSocket.t()) :: {:noreply, WebSocket.t()}
+  def handle_event(%PriceChangeEvent{} = event, %WebSocket{} = state) do
+    Stats.increase(:ws_messages)
+    MarketData.record_price_changes(event)
+    {:noreply, state}
+  end
+
   def handle_event(_event, %WebSocket{} = state) do
     Stats.increase(:ws_messages)
     {:noreply, state}

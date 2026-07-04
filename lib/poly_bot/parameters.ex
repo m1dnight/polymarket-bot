@@ -5,8 +5,9 @@ defmodule PolyBot.Parameters do
   `event_fetch_worker_opts/0` builds the arguments for
   `PolyBot.EventFetch.Worker`; `event_fetch_opts/0` builds the Gamma query
   filters those fetches use. `websocket_worker_opts/0` builds the arguments
-  for `PolyBot.WebSocketManager.Worker`. `dashboard_refresh_ms/0` is the
-  refresh interval of `PolyBotWeb.DashboardLive`.
+  for `PolyBot.WebSocketManager.Worker`. `market_data_worker_opts/0` builds
+  the arguments for `PolyBot.MarketData.Worker`. `dashboard_refresh_ms/0` is
+  the refresh interval of `PolyBotWeb.DashboardLive`.
   """
 
   alias PolyBot.Contexts.Markets
@@ -100,6 +101,27 @@ defmodule PolyBot.Parameters do
   end
 
   @doc """
+  Builds the argument keyword-list for `PolyBot.MarketData.Worker`.
+
+  Bundles the config-driven `:sweep_interval_ms`, the delay between top-of-book
+  staleness sweeps, with the `:staleness_threshold_ms` age above which a row
+  counts as stale.
+
+  ## Examples
+
+      iex> market_data_worker_opts()
+      [sweep_interval_ms: 5000, staleness_threshold_ms: 30000]
+
+  """
+  @spec market_data_worker_opts :: PolyBot.MarketData.Worker.opts()
+  def market_data_worker_opts do
+    [
+      sweep_interval_ms: market_data_env(:sweep_interval_ms),
+      staleness_threshold_ms: market_data_env(:staleness_threshold_ms)
+    ]
+  end
+
+  @doc """
   The config-driven interval between dashboard stat refreshes, in milliseconds.
 
   ## Examples
@@ -135,6 +157,12 @@ defmodule PolyBot.Parameters do
   @spec websocket_manager_env(atom()) :: term()
   defp websocket_manager_env(key) do
     Application.fetch_env!(:poly_bot, :websocket_manager)
+    |> Keyword.fetch!(key)
+  end
+
+  @spec market_data_env(atom()) :: term()
+  defp market_data_env(key) do
+    Application.fetch_env!(:poly_bot, :market_data)
     |> Keyword.fetch!(key)
   end
 

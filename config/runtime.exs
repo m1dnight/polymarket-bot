@@ -50,6 +50,13 @@ if config_env() != :test do
     # for tradable markets; tests disable it to keep the singleton off the DB
     resync_from_db: optional("WEBSOCKET_RESYNC_FROM_DB", :boolean, true)
 
+  config :poly_bot, :market_data,
+    # interval between top-of-book staleness sweeps (a full-table scan), in
+    # ms; 0 (or less) disables sweeping entirely
+    sweep_interval_ms: optional("MARKET_DATA_SWEEP_INTERVAL_MS", :integer, 5_000),
+    # age above which a top-of-book row counts as stale in the sweep, in ms
+    staleness_threshold_ms: optional("MARKET_DATA_STALENESS_THRESHOLD_MS", :integer, 30_000)
+
   config :poly_bot, :dashboard,
     # interval between dashboard stat refreshes, in ms
     refresh_ms: optional("DASHBOARD_REFRESH_MS", :integer, 5_000)

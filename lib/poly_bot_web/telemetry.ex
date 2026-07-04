@@ -37,6 +37,10 @@ defmodule PolyBotWeb.Telemetry do
       # how many are currently outstanding.
       sum("poly_bot.websocket.park.count"),
       sum("poly_bot.websocket.restore.count"),
+      # top-of-book staleness, swept periodically by PolyBot.MarketData.Worker;
+      # `stale` counts rows older than the configured threshold.
+      last_value("poly_bot.market_data.staleness.stale"),
+      last_value("poly_bot.market_data.staleness.max_ms"),
       # Phoenix Metrics
       summary("phoenix.endpoint.start.system_time",
         unit: {:native, :millisecond}

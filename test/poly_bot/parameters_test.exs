@@ -60,6 +60,15 @@ defmodule PolyBot.ParametersTest do
     end
   end
 
+  describe "market_data_worker_opts/0" do
+    test "bundles the sweep interval and staleness threshold from the test config" do
+      assert Parameters.market_data_worker_opts() == [
+               sweep_interval_ms: 0,
+               staleness_threshold_ms: 30_000
+             ]
+    end
+  end
+
   describe "event_fetch_worker_opts/0" do
     test "bundles the default interval and fetch_opts in the test config" do
       assert Parameters.event_fetch_worker_opts() == [

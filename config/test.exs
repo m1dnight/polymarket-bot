@@ -56,4 +56,11 @@ config :poly_bot, :websocket_manager,
   retry_max_ms: 30_000,
   resync_from_db: false
 
+# The market data worker still owns the :market_state table in tests; a
+# non-positive sweep interval just keeps the periodic staleness sweep (and its
+# telemetry/log noise) out of them.
+config :poly_bot, :market_data,
+  sweep_interval_ms: 0,
+  staleness_threshold_ms: 30_000
+
 config :poly_bot, :dashboard, refresh_ms: 5_000

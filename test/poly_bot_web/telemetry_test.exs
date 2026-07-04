@@ -33,6 +33,6 @@ defmodule PolyBotWeb.TelemetryTest do
 
     # the next poll only covers increments since the previous one.
     PolyBotWeb.Telemetry.measure_ws_messages()
-    assert_receive {:messages, %{count: 0, rate: 0.0}}
+    assert_receive {:messages, %{count: 0, rate: +0.0}}
   end
 end
