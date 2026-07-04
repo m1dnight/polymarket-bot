@@ -1,40 +1,47 @@
 <Layouts.app flash={@flash}>
-  <section id="event-store-stats" class="space-y-2">
-    <h2 class="text-sm font-semibold">Event store</h2>
-    <div class="grid grid-cols-2 gap-4">
-      <.stat id="stat-events" label="Events" value={format_int(@event_count)} />
-      <.stat id="stat-markets" label="Markets" value={format_int(@market_count)} />
-    </div>
-  </section>
-
-  <section id="websocket-stats" class="space-y-2">
-    <h2 class="text-sm font-semibold">Websocket</h2>
-    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <.stat id="stat-connections" label="Connections" value={@connection_count} />
-      <.stat id="stat-avg-lifespan" label="Avg lifespan" value={format_duration(@avg_lifespan)} />
-      <.stat id="stat-avg-assets" label="Avg assets / connection" value={@avg_assets || "–"} />
-      <.stat id="stat-pending-assets" label="Pending resubscribe" value={@pending_asset_count} />
-    </div>
-  </section>
-
-  <section id="disconnect-stats" class="space-y-2">
-    <h2 class="text-sm font-semibold">Disconnect history</h2>
-    <div class="grid grid-cols-3 gap-4">
-      <.stat
-        id="stat-lifespan-min"
-        label="Min lifespan"
-        value={format_minutes(@lifespan_stats.min)}
+  <div class="grid gap-x-6 gap-y-6 sm:grid-cols-3">
+    <.panel id="websocket-stats" title="Websocket pool">
+      <:meta>
+        <span :if={@sockets_loading?} id="sockets-loading">
+          <.icon
+            name="hero-arrow-path"
+            class="size-3 motion-safe:animate-spin text-base-content/40"
+          />
+        </span>
+      </:meta>
+      <%!-- The red is deliberately NOT gated on @sockets_loading?: gating would blink
+           the alert off on every refresh tick during a real outage, and hide one
+           entirely behind a stalled worker fetch. The header spinner disambiguates
+           "refreshing" from "genuinely zero". --%>
+      <.stat_row
+        id="stat-connections"
+        label="Connections"
+        value={@connection_count}
+        value_class={if(@connection_count == 0, do: "text-error", else: nil)}
       />
-      <.stat
-        id="stat-lifespan-avg"
+      <.stat_row
+        id="stat-pending-assets"
+        label="Pending resub"
+        value={@pending_asset_count}
+        value_class={if(@pending_asset_count > 0, do: "text-warning", else: nil)}
+      />
+      <.stat_row
+        id="stat-avg-lifespan"
         label="Avg lifespan"
-        value={format_minutes(@lifespan_stats.avg)}
+        value={format_duration(@avg_lifespan)}
       />
-      <.stat
-        id="stat-lifespan-max"
-        label="Max lifespan"
-        value={format_minutes(@lifespan_stats.max)}
-      />
-    </div>
-  </section>
+      <.stat_row id="stat-avg-assets" label="Avg assets / conn" value={@avg_assets || "–"} />
+    </.panel>
+
+    <.panel id="event-store-stats" title="Event store">
+      <.stat_row id="stat-events" label="Events" value={format_int(@event_count)} />
+      <.stat_row id="stat-markets" label="Markets" value={format_int(@market_count)} />
+    </.panel>
+
+    <.panel id="disconnect-stats" title="Disconnect lifespan">
+      <.stat_row id="stat-lifespan-min" label="Min" value={format_minutes(@lifespan_stats.min)} />
+      <.stat_row id="stat-lifespan-avg" label="Avg" value={format_minutes(@lifespan_stats.avg)} />
+      <.stat_row id="stat-lifespan-max" label="Max" value={format_minutes(@lifespan_stats.max)} />
+    </.panel>
+  </div>
 </Layouts.app>
