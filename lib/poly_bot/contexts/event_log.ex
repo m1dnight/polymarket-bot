@@ -60,25 +60,29 @@ defmodule PolyBot.Contexts.EventLog do
   end
 
   @doc """
-  Average websocket lifespan in whole seconds since the application booted,
-  split into sockets that already logged a disconnect (connect to disconnect
-  line) and sockets still connected (connect line with no matching disconnect,
-  measured up to now). An average is `nil` when no socket falls in that class.
+  Websocket counts and average lifespans since the application booted, split
+  into sockets that already logged a disconnect (lifespan: connect to
+  disconnect line) and sockets still connected (a connect line with no
+  matching disconnect, measured up to now). Lifespans are whole seconds;
+  an average is `nil` when no socket falls in that class.
 
   Only connect lines inserted after boot are counted, so connects orphaned by
   a previous run are never reported as still connected.
 
   ## Examples
 
-      iex> websocket_lifespan_stats()
-      %{connected: 512, disconnected: 3600}
+      iex> websocket_stats()
+      %{
+        connected: %{count: 3, avg_lifespan: 512},
+        disconnected: %{count: 10, avg_lifespan: 3600}
+      }
 
   """
-  @spec websocket_lifespan_stats() :: %{
-          connected: non_neg_integer() | nil,
-          disconnected: non_neg_integer() | nil
+  @spec websocket_stats() :: %{
+          connected: %{count: non_neg_integer(), avg_lifespan: non_neg_integer() | nil},
+          disconnected: %{count: non_neg_integer(), avg_lifespan: non_neg_integer() | nil}
         }
-  def websocket_lifespan_stats do
+  def websocket_stats do
     {uptime_ms, _} = :erlang.statistics(:wall_clock)
     booted_at = DateTime.add(DateTime.utc_now(), -uptime_ms, :millisecond)
 
@@ -89,22 +93,28 @@ defmodule PolyBot.Contexts.EventLog do
         left_join: d in EventLine,
         on: d.event == ^@disconnect_event and d.metadata["id"] == c.metadata["id"],
         select: %{
-          connected:
-            type(
-              filter(
-                avg(fragment("EXTRACT(EPOCH FROM (now() - ?))", c.inserted_at)),
-                is_nil(d.id)
-              ),
-              :integer
-            ),
-          disconnected:
-            type(
-              filter(
-                avg(fragment("EXTRACT(EPOCH FROM (? - ?))", d.inserted_at, c.inserted_at)),
-                not is_nil(d.id)
-              ),
-              :integer
-            )
+          connected: %{
+            count: filter(count(c.id), is_nil(d.id)),
+            avg_lifespan:
+              type(
+                filter(
+                  avg(fragment("EXTRACT(EPOCH FROM (now() - ?))", c.inserted_at)),
+                  is_nil(d.id)
+                ),
+                :integer
+              )
+          },
+          disconnected: %{
+            count: filter(count(c.id), not is_nil(d.id)),
+            avg_lifespan:
+              type(
+                filter(
+                  avg(fragment("EXTRACT(EPOCH FROM (? - ?))", d.inserted_at, c.inserted_at)),
+                  not is_nil(d.id)
+                ),
+                :integer
+              )
+          }
         }
 
     Repo.one(query)

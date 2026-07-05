@@ -1,24 +1,17 @@
 defmodule PolyBotWeb.DashboardLive do
   @moduledoc """
   Minimal operational dashboard for the bot: database counts (events, markets),
-  aggregate websocket pool stats and average socket lifespans, refreshed
-  every `PolyBot.Parameters.dashboard_refresh_ms/0`.
-
-  The pool read can stall behind an in-flight subscribe on the worker, so it is
-  fetched with `start_async/3` — the database tiles keep refreshing and the
-  socket tiles hold their last values until the fetch returns.
+  websocket message rate, and socket counts and average lifespans (from the
+  event log), refreshed every `PolyBot.Parameters.dashboard_refresh_ms/0`.
   """
 
   use PolyBotWeb, :live_view
-
-  require Logger
 
   alias PolyBot.Contexts.EventLog
   alias PolyBot.Contexts.Events
   alias PolyBot.Contexts.Markets
   alias PolyBot.Parameters
   alias PolyBot.Stats
-  alias PolyBot.WebSocketManager.Worker
 
   @impl true
   def mount(_params, _session, socket) do
@@ -29,11 +22,6 @@ defmodule PolyBotWeb.DashboardLive do
     socket =
       assign(socket,
         page_title: "Dashboard",
-        connection_count: 0,
-        avg_lifespan: nil,
-        avg_assets: nil,
-        pending_asset_count: 0,
-        sockets_loading?: false,
         msg_rate: nil,
         last_msg_total: nil,
         last_msg_at: nil
@@ -45,23 +33,6 @@ defmodule PolyBotWeb.DashboardLive do
   @impl true
   def handle_info(:refresh, socket) do
     {:noreply, refresh(socket)}
-  end
-
-  @impl true
-  def handle_async(:sockets, {:ok, snapshot}, socket) do
-    {:noreply,
-     assign(socket,
-       sockets_loading?: false,
-       connection_count: length(snapshot.sockets),
-       avg_lifespan: avg_lifespan(snapshot.sockets),
-       avg_assets: avg_assets(snapshot.sockets),
-       pending_asset_count: snapshot.pending_asset_count
-     )}
-  end
-
-  def handle_async(:sockets, {:exit, reason}, socket) do
-    Logger.warning("Dashboard websocket pool fetch failed: #{inspect(reason)}")
-    {:noreply, assign(socket, :sockets_loading?, false)}
   end
 
   # ---------------------------------------------------------------------------#
@@ -116,10 +87,9 @@ defmodule PolyBotWeb.DashboardLive do
     |> assign(
       event_count: Events.count_events(),
       market_count: Markets.count_markets(),
-      lifespan_stats: EventLog.websocket_lifespan_stats()
+      websocket_stats: EventLog.websocket_stats()
     )
     |> refresh_msg_rate()
-    |> refresh_sockets()
   end
 
   # Messages/s over the last refresh interval, diffed from the monotonic
@@ -140,39 +110,6 @@ defmodule PolyBotWeb.DashboardLive do
       end
 
     assign(socket, msg_rate: rate, last_msg_total: total, last_msg_at: now)
-  end
-
-  # At most one pool fetch is in flight: a tick that lands mid-fetch skips it
-  # rather than queueing another call on a busy worker.
-  defp refresh_sockets(%{assigns: %{sockets_loading?: true}} = socket), do: socket
-
-  defp refresh_sockets(socket) do
-    socket
-    |> assign(:sockets_loading?, true)
-    |> start_async(:sockets, fn -> Worker.sockets() end)
-  end
-
-  # Average connection age in whole seconds, or nil when the pool is empty.
-  defp avg_lifespan([]), do: nil
-
-  defp avg_lifespan(sockets) do
-    now = DateTime.utc_now()
-
-    sockets
-    |> Enum.map(&DateTime.diff(now, &1.created))
-    |> Enum.sum()
-    |> div(length(sockets))
-  end
-
-  # Average subscribed assets per connection, or nil when the pool is empty.
-  defp avg_assets([]), do: nil
-
-  defp avg_assets(sockets) do
-    sockets
-    |> Enum.map(&MapSet.size(&1.assets))
-    |> Enum.sum()
-    |> Kernel./(length(sockets))
-    |> Float.round(1)
   end
 
   # 12345 -> "12,345"

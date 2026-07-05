@@ -1,36 +1,17 @@
 <Layouts.app flash={@flash}>
   <div class="grid gap-x-6 gap-y-6 sm:grid-cols-3">
-    <.panel id="websocket-stats" title="Websocket pool">
-      <:meta>
-        <span :if={@sockets_loading?} id="sockets-loading">
-          <.icon
-            name="hero-arrow-path"
-            class="size-3 motion-safe:animate-spin text-base-content/40"
-          />
-        </span>
-      </:meta>
-      <%!-- The red is deliberately NOT gated on @sockets_loading?: gating would blink
-           the alert off on every refresh tick during a real outage, and hide one
-           entirely behind a stalled worker fetch. The header spinner disambiguates
-           "refreshing" from "genuinely zero". --%>
+    <.panel id="websocket-stats" title="Websockets">
       <.stat_row
         id="stat-connections"
         label="Connections"
-        value={@connection_count}
-        value_class={if(@connection_count == 0, do: "text-error", else: nil)}
+        value={@websocket_stats.connected.count}
+        value_class={if(@websocket_stats.connected.count == 0, do: "text-error", else: nil)}
       />
       <.stat_row
-        id="stat-pending-assets"
-        label="Pending resub"
-        value={@pending_asset_count}
-        value_class={if(@pending_asset_count > 0, do: "text-warning", else: nil)}
+        id="stat-disconnects"
+        label="Disconnects"
+        value={@websocket_stats.disconnected.count}
       />
-      <.stat_row
-        id="stat-avg-lifespan"
-        label="Avg lifespan"
-        value={format_duration(@avg_lifespan)}
-      />
-      <.stat_row id="stat-avg-assets" label="Avg assets / conn" value={@avg_assets || "–"} />
       <.stat_row id="stat-msg-rate" label="Messages / s" value={@msg_rate || "–"} />
     </.panel>
 
@@ -43,12 +24,12 @@
       <.stat_row
         id="stat-lifespan-connected"
         label="Connected"
-        value={format_duration(@lifespan_stats.connected)}
+        value={format_duration(@websocket_stats.connected.avg_lifespan)}
       />
       <.stat_row
         id="stat-lifespan-disconnected"
         label="Disconnected"
-        value={format_duration(@lifespan_stats.disconnected)}
+        value={format_duration(@websocket_stats.disconnected.avg_lifespan)}
       />
     </.panel>
   </div>
