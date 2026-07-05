@@ -1,0 +1,57 @@
+<Layouts.app flash={@flash}>
+  <Layouts.dashboard_tabs active={:parameters} />
+
+  <div class="grid gap-x-6 gap-y-6 sm:grid-cols-2">
+    <.panel id="event-fetcher-params" title="Event fetcher">
+      <.stat_row
+        id="param-fetch-interval"
+        label="Poll interval"
+        value={format_ms(@event_fetch[:interval_ms])}
+      />
+      <.stat_row id="param-fetch-limit" label="Page size" value={@fetch_opts[:limit]} />
+      <.stat_row id="param-fetch-active" label="Active only" value={to_string(@fetch_opts[:active])} />
+      <.stat_row
+        id="param-fetch-closed"
+        label="Include closed"
+        value={to_string(@fetch_opts[:closed])}
+      />
+      <.stat_row
+        id="param-fetch-liquidity"
+        label="Min liquidity"
+        value={format_liquidity(@fetch_opts[:liquidity_min])}
+      />
+    </.panel>
+
+    <.panel id="websocket-params" title="Websockets">
+      <.stat_row id="param-ws-conn-cap" label="Assets / connection" value={@websocket[:conn_cap]} />
+      <.stat_row
+        id="param-ws-retry-base"
+        label="Retry base"
+        value={format_ms(@websocket[:retry_base_ms])}
+      />
+      <.stat_row
+        id="param-ws-retry-max"
+        label="Retry max"
+        value={format_ms(@websocket[:retry_max_ms])}
+      />
+    </.panel>
+
+    <.panel id="market-data-params" title="Market data">
+      <.stat_row
+        id="param-md-sweep"
+        label="Sweep interval"
+        value={format_ms(@market_data[:sweep_interval_ms])}
+      />
+      <.stat_row
+        id="param-md-staleness"
+        label="Staleness threshold"
+        value={format_ms(@market_data[:staleness_threshold_ms])}
+      />
+    </.panel>
+
+    <.panel id="dashboard-params" title="Dashboard">
+      <.stat_row id="param-dash-refresh" label="Refresh" value={format_ms(@dashboard_refresh_ms)} />
+      <.stat_row id="param-dash-blink" label="Blink window" value={format_ms(@dashboard_blink_ms)} />
+    </.panel>
+  </div>
+</Layouts.app>

@@ -58,6 +58,35 @@ defmodule PolyBotWeb.Layouts do
   end
 
   @doc """
+  Renders the dashboard tab bar with the given tab highlighted.
+
+  ## Examples
+
+      <Layouts.dashboard_tabs active={:stats} />
+
+  """
+  attr :active, :atom, required: true, values: [:stats, :events, :parameters]
+
+  def dashboard_tabs(assigns) do
+    ~H"""
+    <nav id="dashboard-tabs" class="mb-6 flex gap-5 border-b border-base-300 text-sm">
+      <.link navigate={~p"/dashboard"} class={tab_class(@active == :stats)}>
+        Stats
+      </.link>
+      <.link navigate={~p"/dashboard/events"} class={tab_class(@active == :events)}>
+        Events
+      </.link>
+      <.link navigate={~p"/dashboard/parameters"} class={tab_class(@active == :parameters)}>
+        Parameters
+      </.link>
+    </nav>
+    """
+  end
+
+  defp tab_class(true), do: "-mb-px border-b-2 border-base-content pb-2"
+  defp tab_class(false), do: "pb-2 text-base-content/60 hover:text-base-content"
+
+  @doc """
   Shows the flash group with standard titles and content.
 
   ## Examples

@@ -420,6 +420,62 @@ defmodule PolyBotWeb.CoreComponents do
   end
 
   @doc """
+  Renders a titled group of `stat_row/1` lines under a ruled column-header
+  line.
+
+  ## Examples
+
+      <.panel id="websocket-stats" title="Websockets">
+        <.stat_row id="stat-connections" label="Connections" value={3} />
+      </.panel>
+
+  """
+  attr :id, :string, required: true
+  attr :title, :string, required: true
+  attr :class, :string, default: nil
+
+  slot :meta, doc: "optional right-aligned header content, e.g. a loading indicator"
+  slot :inner_block, required: true
+
+  def panel(assigns) do
+    ~H"""
+    <section id={@id} class={@class}>
+      <div class="flex h-5 items-center justify-between border-b border-base-content/20 pb-1">
+        <h2 class="text-[0.65rem] font-semibold uppercase tracking-widest text-base-content/50">
+          {@title}
+        </h2>
+        {render_slot(@meta)}
+      </div>
+      <dl class="divide-y divide-base-300">
+        {render_slot(@inner_block)}
+      </dl>
+    </section>
+    """
+  end
+
+  @doc """
+  Renders one label/value line; values right-align in a mono tabular column.
+
+  ## Examples
+
+      <.stat_row id="stat-events" label="Events" value={42} />
+
+  """
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :value_class, :string, default: nil, doc: "semantic color override for the value"
+
+  def stat_row(assigns) do
+    ~H"""
+    <div id={@id} class="flex items-baseline justify-between gap-4 py-1.5">
+      <dt class="text-xs text-base-content/60">{@label}</dt>
+      <dd class={["font-mono text-sm tabular-nums leading-tight", @value_class]}>{@value}</dd>
+    </div>
+    """
+  end
+
+  @doc """
   Renders a [Heroicon](https://heroicons.com).
 
   Heroicons come in three styles – outline, solid, and mini.

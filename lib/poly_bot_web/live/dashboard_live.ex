@@ -36,49 +36,6 @@ defmodule PolyBotWeb.DashboardLive do
   end
 
   # ---------------------------------------------------------------------------#
-  #                                Components                                  #
-  # ---------------------------------------------------------------------------#
-
-  attr :id, :string, required: true
-  attr :title, :string, required: true
-  attr :class, :string, default: nil
-
-  slot :meta, doc: "optional right-aligned header content, e.g. a loading indicator"
-  slot :inner_block, required: true
-
-  # A titled group of stat rows under a ruled column-header line.
-  defp panel(assigns) do
-    ~H"""
-    <section id={@id} class={@class}>
-      <div class="flex h-5 items-center justify-between border-b border-base-content/20 pb-1">
-        <h2 class="text-[0.65rem] font-semibold uppercase tracking-widest text-base-content/50">
-          {@title}
-        </h2>
-        {render_slot(@meta)}
-      </div>
-      <dl class="divide-y divide-base-300">
-        {render_slot(@inner_block)}
-      </dl>
-    </section>
-    """
-  end
-
-  attr :id, :string, required: true
-  attr :label, :string, required: true
-  attr :value, :any, required: true
-  attr :value_class, :string, default: nil, doc: "semantic color override for the value"
-
-  # One label/value line; values right-align in a mono tabular column.
-  defp stat_row(assigns) do
-    ~H"""
-    <div id={@id} class="flex items-baseline justify-between gap-4 py-1.5">
-      <dt class="text-xs text-base-content/60">{@label}</dt>
-      <dd class={["font-mono text-sm tabular-nums leading-tight", @value_class]}>{@value}</dd>
-    </div>
-    """
-  end
-
-  # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
 

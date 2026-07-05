@@ -1,15 +1,5 @@
 <Layouts.app flash={@flash}>
-  <nav id="dashboard-tabs" class="mb-6 flex gap-5 border-b border-base-300 text-sm">
-    <.link navigate={~p"/dashboard"} class="-mb-px border-b-2 border-base-content pb-2">
-      Stats
-    </.link>
-    <.link
-      navigate={~p"/dashboard/events"}
-      class="pb-2 text-base-content/60 hover:text-base-content"
-    >
-      Events
-    </.link>
-  </nav>
+  <Layouts.dashboard_tabs active={:stats} />
 
   <div class="grid gap-x-6 gap-y-6 sm:grid-cols-3">
     <.panel id="websocket-stats" title="Websockets">

@@ -20,6 +20,7 @@ defmodule PolyBotWeb.Router do
     get "/", PageController, :home
     live "/dashboard", DashboardLive
     live "/dashboard/events", EventsLive
+    live "/dashboard/parameters", ParametersLive
   end
 
   # Other scopes may use custom stacks.
