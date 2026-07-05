@@ -10,29 +10,9 @@ defmodule PolyBot.MarketData do
   asset's row stays absent or stale until its first `price_change` arrives —
   consumers must treat "no row or stale row" as "don't trade this market".
 
-  Each recorded frame is also announced as one `{:asset_price_changes, asset_ids}`
+  Each recorded frame is announced as one `{:asset_price_changes, asset_ids}`
   message on the `"market_data:asset_price_changes"` PubSub topic — a coarse,
   frame-level signal for low-stakes consumers like dashboards.
-
-  Trading consumers should register through `subscribe/1` instead (backed by
-  the `PolyBot.MarketData.Registry` started in `PolyBot.Application`) and
-  receive a `{:dirty, asset_id}` message per update. Because updates can
-  outpace the consumer, drain the duplicates, then read once and act:
-
-      def handle_info({:dirty, id}, state) do
-        flush_dirty(id)
-        {:ok, {^id, bid, ask, _exchange_ts, _recv_ts}} = PolyBot.MarketData.get(id)
-        # ... decide ...
-        {:noreply, state}
-      end
-
-      defp flush_dirty(id) do
-        receive do
-          {:dirty, ^id} -> flush_dirty(id)
-        after
-          0 -> :ok
-        end
-      end
 
   The table itself is owned by `PolyBot.MarketData.Worker`, which also runs the
   periodic `sweep_staleness/2` guarding against a silently frozen feed.
@@ -43,7 +23,6 @@ defmodule PolyBot.MarketData do
   alias Polymarket.Schemas.PriceChangeEvent
 
   @table :market_state
-  @registry PolyBot.MarketData.Registry
 
   @typedoc "A Polymarket CLOB asset id (decimal token id string)."
   @type asset_id :: String.t()
@@ -114,17 +93,15 @@ defmodule PolyBot.MarketData do
   end
 
   @doc """
-  Record the top of book carried by a `price_change` event and notify
-  subscribers.
+  Record the top of book carried by a `price_change` event and announce it.
 
   Runs in the websocket process, so it does the minimum: stamp the receive
   time once for the whole event, batch-insert one `t:row/0` per change (a
-  single ETS operation, latest write wins), send `{:dirty, asset_id}` to the
-  processes subscribed to each asset, and announce the recorded asset ids as
-  one `{:asset_price_changes, asset_ids}` broadcast on the
+  single ETS operation, latest write wins), and announce the recorded asset
+  ids as one `{:asset_price_changes, asset_ids}` broadcast on the
   `"market_data:asset_price_changes"` PubSub topic. Changes missing either side of
   the book are skipped so they never clobber a complete row — skipped changes
-  are neither notified nor announced.
+  are not announced.
 
   ## Examples
 
@@ -145,7 +122,6 @@ defmodule PolyBot.MarketData do
     :ets.insert(table, rows)
 
     asset_ids = for {id, _bid, _ask, _exchange_ts, _recv_ts} <- rows, do: id
-    Enum.each(asset_ids, &notify_dirty/1)
 
     if asset_ids != [] do
       Broadcast.broadcast_asset_price_changes(asset_ids)
@@ -175,25 +151,6 @@ defmodule PolyBot.MarketData do
       [row] -> {:ok, row}
       [] -> :error
     end
-  end
-
-  @doc """
-  Subscribe the calling process to `{:dirty, asset_id}` notifications for
-  `asset_id`.
-
-  The registration is removed automatically when the caller dies. See the
-  module doc for the drain-then-read consumption pattern.
-
-  ## Examples
-
-      iex> subscribe("71321045679252212594626385532706912345")
-      :ok
-
-  """
-  @spec subscribe(asset_id()) :: :ok
-  def subscribe(asset_id) do
-    {:ok, _owner} = Registry.register(@registry, asset_id, nil)
-    :ok
   end
 
   @doc """
@@ -235,14 +192,6 @@ defmodule PolyBot.MarketData do
   # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#
-
-  # Sends {:dirty, asset_id} to every subscriber of the asset. Runs in the
-  # calling (websocket) process.
-  defp notify_dirty(asset_id) do
-    Registry.dispatch(@registry, asset_id, fn subscribers ->
-      for {pid, _value} <- subscribers, do: send(pid, {:dirty, asset_id})
-    end)
-  end
 
   # `min/2` with an explicit seed for the first row.
   defp min_age(nil, age), do: age

@@ -1,9 +1,9 @@
 defmodule PolyBot.MarketDataTest do
   @moduledoc """
   Exercises `PolyBot.MarketData` against the shared `:market_state` table
-  (write/read/notify paths, using unique asset ids so async tests never
-  collide) and against private per-test tables (staleness sweeps, whose counts
-  must not see other tests' rows).
+  (write/read paths, using unique asset ids so async tests never collide) and
+  against private per-test tables (staleness sweeps, whose counts must not see
+  other tests' rows).
   """
 
   use ExUnit.Case, async: true
@@ -40,34 +40,14 @@ defmodule PolyBot.MarketDataTest do
       assert {:ok, {^id_b, 0.90, 0.92, _, _}} = MarketData.get(id_b)
     end
 
-    test "notifies subscribers of each recorded asset" do
-      id = unique_id()
-      :ok = MarketData.subscribe(id)
-
-      assert :ok = MarketData.record_price_changes(price_change_event([{id, 0.42, 0.44}]))
-
-      # Registry.dispatch runs in the caller, so the message is already here.
-      assert_received {:dirty, ^id}
-    end
-
-    test "does not notify subscribers of other assets" do
-      :ok = MarketData.subscribe(unique_id())
-
-      assert :ok = MarketData.record_price_changes(price_change_event([{unique_id(), 0.4, 0.6}]))
-
-      refute_received {:dirty, _id}
-    end
-
     test "skips changes missing a side of the book" do
       {id_a, id_b} = {unique_id(), unique_id()}
-      :ok = MarketData.subscribe(id_a)
 
       event = price_change_event([{id_a, nil, 0.44}, {id_b, 0.42, nil}])
       assert :ok = MarketData.record_price_changes(event)
 
       assert MarketData.get(id_a) == :error
       assert MarketData.get(id_b) == :error
-      refute_received {:dirty, _id}
     end
 
     test "a partial change does not clobber a complete row" do

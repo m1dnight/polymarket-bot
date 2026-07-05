@@ -96,6 +96,15 @@ defmodule PolyBotWeb.EventsLive do
     update(socket, :pending_blinks, &Enum.into(event_ids, &1))
   end
 
+  # Start a cell's decay in the past by its age, so a mount only animates
+  # (and repaints) recently updated cells instead of the whole grid, and the
+  # fade reflects real recency across refreshes. Clamped just past the 10s
+  # animation duration in app.css; anything older renders finished.
+  defp decay_delay(event) do
+    age = DateTime.diff(DateTime.utc_now(), event.updated_at)
+    "animation-delay: -#{age |> min(11) |> max(0)}s"
+  end
+
   # Arm at most one deferred asset-map rebuild, so a burst of events:new
   # broadcasts costs a single query.
   defp queue_asset_refresh(%{assigns: %{asset_refresh_queued?: true}} = socket), do: socket

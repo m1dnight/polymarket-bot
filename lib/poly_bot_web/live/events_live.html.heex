@@ -22,6 +22,7 @@
       id={id}
       title={"#{event.external_id} · #{Calendar.strftime(event.updated_at, "%Y-%m-%d %H:%M:%S")}"}
       class={["event-cell size-3 rounded-sm", event.closed && "opacity-40"]}
+      style={decay_delay(event)}
     />
   </div>
 
@@ -29,15 +30,19 @@
     export default {
       mounted() {
         this.handleEvent("blink", ({ids}) => {
+          // restart the green→transparent decay from zero via an
+          // animation:none round-trip. Batched: all writes, ONE forced
+          // reflow, all writes — a reflow per cell janks the whole grid.
+          // Resetting the shorthand also drops the server-rendered
+          // animation-delay, so the cell flashes full green.
+          const cells = []
           for (const id of ids) {
             const cell = document.getElementById(id)
-            if (!cell) continue
-            // restart the green→transparent decay from zero: the inline
-            // animation:none round-trip wipes the running animation's state.
-            cell.style.animation = "none"
-            void cell.offsetWidth
-            cell.style.animation = ""
+            if (cell) cells.push(cell)
           }
+          for (const cell of cells) cell.style.animation = "none"
+          void document.body.offsetWidth
+          for (const cell of cells) cell.style.animation = ""
         })
       }
     }

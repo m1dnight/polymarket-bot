@@ -21,11 +21,6 @@ defmodule PolyBot.Application do
       PolyBot.Repo,
       {DNSCluster, query: Application.get_env(:poly_bot, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PolyBot.PubSub},
-      # Delivers {:dirty, asset_id} notifications from the websocket write
-      # path to subscribed processes (see PolyBot.MarketData). Single
-      # partition: registrations are rare, dispatches are per price change,
-      # and a dispatch scans every partition of a :duplicate registry.
-      {Registry, keys: :duplicate, name: MarketData.Registry},
       # Owns the top-of-book ETS table and sweeps it for staleness. Must start
       # before the websocket children below, whose handlers write to it.
       {MarketData.Worker, Parameters.market_data_worker_opts()},
