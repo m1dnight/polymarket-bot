@@ -10,10 +10,14 @@ defmodule PolyBot.MarketData do
   asset's row stays absent or stale until its first `price_change` arrives —
   consumers must treat "no row or stale row" as "don't trade this market".
 
-  Consumers register through `subscribe/1` (backed by the
-  `PolyBot.MarketData.Registry` started in `PolyBot.Application`) and receive a
-  `{:dirty, asset_id}` message per update. Because updates can outpace the
-  consumer, drain the duplicates, then read once and act:
+  Each recorded frame is also announced as one `{:asset_price_changes, asset_ids}`
+  message on the `"market_data:asset_price_changes"` PubSub topic — a coarse,
+  frame-level signal for low-stakes consumers like dashboards.
+
+  Trading consumers should register through `subscribe/1` instead (backed by
+  the `PolyBot.MarketData.Registry` started in `PolyBot.Application`) and
+  receive a `{:dirty, asset_id}` message per update. Because updates can
+  outpace the consumer, drain the duplicates, then read once and act:
 
       def handle_info({:dirty, id}, state) do
         flush_dirty(id)
@@ -34,6 +38,7 @@ defmodule PolyBot.MarketData do
   periodic `sweep_staleness/2` guarding against a silently frozen feed.
   """
 
+  alias PolyBot.Broadcast
   alias Polymarket.Schemas.PriceChange
   alias Polymarket.Schemas.PriceChangeEvent
 
@@ -114,9 +119,12 @@ defmodule PolyBot.MarketData do
 
   Runs in the websocket process, so it does the minimum: stamp the receive
   time once for the whole event, batch-insert one `t:row/0` per change (a
-  single ETS operation, latest write wins), then send `{:dirty, asset_id}` to
-  the processes subscribed to each asset. Changes missing either side of the
-  book are skipped so they never clobber a complete row.
+  single ETS operation, latest write wins), send `{:dirty, asset_id}` to the
+  processes subscribed to each asset, and announce the recorded asset ids as
+  one `{:asset_price_changes, asset_ids}` broadcast on the
+  `"market_data:asset_price_changes"` PubSub topic. Changes missing either side of
+  the book are skipped so they never clobber a complete row — skipped changes
+  are neither notified nor announced.
 
   ## Examples
 
@@ -136,7 +144,12 @@ defmodule PolyBot.MarketData do
 
     :ets.insert(table, rows)
 
-    for {id, _bid, _ask, _exchange_ts, _recv_ts} <- rows, do: notify_dirty(id)
+    asset_ids = for {id, _bid, _ask, _exchange_ts, _recv_ts} <- rows, do: id
+    Enum.each(asset_ids, &notify_dirty/1)
+
+    if asset_ids != [] do
+      Broadcast.broadcast_asset_price_changes(asset_ids)
+    end
 
     :ok
   end

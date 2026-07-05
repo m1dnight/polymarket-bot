@@ -196,6 +196,39 @@ defmodule PolyBot.Contexts.EventsTest do
     end
   end
 
+  describe "store_events/1" do
+    test "returns an empty split for an empty list without broadcasting" do
+      PolyBot.Broadcast.subscribe_events_new()
+
+      assert %{new: [], updated: []} = Events.store_events([])
+      refute_received {:events_new, _}
+    end
+
+    test "classifies new vs updated and broadcasts only the new events" do
+      PolyBot.Broadcast.subscribe_events_new()
+
+      assert %{new: [%Event{external_id: "s-1"}], updated: []} =
+               Events.store_events([%{external_id: "s-1", active: true}])
+
+      assert_receive {:events_new, [%Event{external_id: "s-1"}]}
+
+      # a mixed batch: the known event is an update, only the new one broadcasts.
+      assert %{new: [%Event{external_id: "s-2"}], updated: [%Event{external_id: "s-1"}]} =
+               Events.store_events([
+                 %{external_id: "s-1", active: false},
+                 %{external_id: "s-2", active: true}
+               ])
+
+      assert_receive {:events_new, [%Event{external_id: "s-2"}]}
+
+      # an update-only batch stays silent.
+      assert %{new: [], updated: [%Event{external_id: "s-2"}]} =
+               Events.store_events([%{external_id: "s-2", active: true}])
+
+      refute_received {:events_new, _}
+    end
+  end
+
   describe "update_event/2" do
     test "updates an event for valid attrs" do
       event = Fixtures.event_fixture(%{closed: false})

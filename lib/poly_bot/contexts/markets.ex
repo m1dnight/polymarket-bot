@@ -46,6 +46,46 @@ defmodule PolyBot.Contexts.Markets do
   end
 
   @doc """
+  Return the total number of CLOB asset ids across all stored markets, as a
+  single aggregate query (summed `cardinality(clob_token_ids)`; markets
+  without token ids contribute nothing).
+
+  ## Examples
+
+      iex> count_assets()
+      84
+
+  """
+  @spec count_assets() :: non_neg_integer()
+  def count_assets do
+    Repo.one(
+      from m in Market, select: coalesce(sum(fragment("cardinality(?)", m.clob_token_ids)), 0)
+    )
+  end
+
+  @doc """
+  Map each CLOB asset id to its owning event's surrogate id, across all stored
+  markets. One query copying only the two needed columns; markets without
+  `clob_token_ids` contribute nothing.
+
+  ## Examples
+
+      iex> asset_event_map()
+      %{"71321045679" => 1, "89561230011" => 1, "12340009999" => 2}
+
+  """
+  @spec asset_event_map() :: %{String.t() => integer()}
+  def asset_event_map do
+    Repo.all(
+      from m in Market,
+        where: not is_nil(m.clob_token_ids),
+        select: {m.clob_token_ids, m.event_id}
+    )
+    |> Enum.flat_map(fn {tokens, event_id} -> Enum.map(tokens, &{&1, event_id}) end)
+    |> Map.new()
+  end
+
+  @doc """
   Return the CLOB asset ids of every tradable market — active, not closed,
   accepting orders, order book enabled — flattened into one list, as a single
   query. Markets missing any of those flags (or without token ids) are

@@ -136,6 +136,22 @@ defmodule PolyBot.Parameters do
     |> Keyword.fetch!(:refresh_ms)
   end
 
+  @doc """
+  The config-driven window for coalescing price-change activity into a single
+  dashboard row-blink push, in milliseconds.
+
+  ## Examples
+
+      iex> dashboard_blink_ms()
+      300
+
+  """
+  @spec dashboard_blink_ms :: pos_integer()
+  def dashboard_blink_ms do
+    Application.fetch_env!(:poly_bot, :dashboard)
+    |> Keyword.fetch!(:blink_ms)
+  end
+
   # ---------------------------------------------------------------------------#
   #                                Helpers                                     #
   # ---------------------------------------------------------------------------#

@@ -1,0 +1,45 @@
+<Layouts.app flash={@flash}>
+  <nav id="dashboard-tabs" class="mb-6 flex gap-5 border-b border-base-300 text-sm">
+    <.link navigate={~p"/dashboard"} class="pb-2 text-base-content/60 hover:text-base-content">
+      Stats
+    </.link>
+    <.link navigate={~p"/dashboard/events"} class="-mb-px border-b-2 border-base-content pb-2">
+      Events
+    </.link>
+  </nav>
+
+  <div
+    id="events"
+    phx-update="stream"
+    phx-hook=".Blink"
+    class="flex flex-wrap content-start gap-0.5"
+  >
+    <div id="events-empty" class="hidden text-sm text-base-content/50 only:block">
+      No events stored yet.
+    </div>
+    <div
+      :for={{id, event} <- @streams.events}
+      id={id}
+      title={"#{event.external_id} · #{Calendar.strftime(event.updated_at, "%Y-%m-%d %H:%M:%S")}"}
+      class={["event-cell size-3 rounded-sm", event.closed && "opacity-40"]}
+    />
+  </div>
+
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".Blink">
+    export default {
+      mounted() {
+        this.handleEvent("blink", ({ids}) => {
+          for (const id of ids) {
+            const cell = document.getElementById(id)
+            if (!cell) continue
+            // restart the green→transparent decay from zero: the inline
+            // animation:none round-trip wipes the running animation's state.
+            cell.style.animation = "none"
+            void cell.offsetWidth
+            cell.style.animation = ""
+          }
+        })
+      }
+    }
+  </script>
+</Layouts.app>

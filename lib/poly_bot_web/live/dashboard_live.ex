@@ -87,6 +87,7 @@ defmodule PolyBotWeb.DashboardLive do
     |> assign(
       event_count: Events.count_events(),
       market_count: Markets.count_markets(),
+      asset_count: Markets.count_assets(),
       websocket_stats: EventLog.websocket_stats()
     )
     |> refresh_msg_rate()
@@ -127,5 +128,4 @@ defmodule PolyBotWeb.DashboardLive do
   defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
   defp format_duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
   defp format_duration(seconds), do: "#{div(seconds, 3600)}h #{seconds |> rem(3600) |> div(60)}m"
-
 end

@@ -8,7 +8,7 @@ defmodule PolyBot.EventFetch do
   on demand (e.g. from IEx).
   """
 
-  alias Phoenix.PubSub
+  alias PolyBot.Broadcast
   alias PolyBot.Contexts.Events
   alias Polymarket.Schemas.Event, as: GammaEvent
   alias Polymarket.Schemas.Market, as: GammaMarket
@@ -66,13 +66,16 @@ defmodule PolyBot.EventFetch do
   defp gamma_client, do: Application.get_env(:poly_bot, :gamma_client, Polymarket.Gamma)
 
   # Upsert a chunk of gamma events and reconcile the markets nested on them,
-  # returning the number of events stored. Markets are linked to their owning
-  # event through the surrogate ids `Events.upsert_events/1` returns (cheaper
+  # returning the number of events stored. `Events.store_events/1` announces
+  # any newly listed events on "events:new" as a side effect; markets are
+  # linked to their owning event through the surrogate ids it returns (cheaper
   # than re-querying); `Events.replace_markets/2` then prunes any markets these
   # events no longer report.
   @spec store_chunk([GammaEvent.t()]) :: non_neg_integer()
   defp store_chunk(events) do
-    {count, stored} = Events.upsert_events(Enum.map(events, &event_attrs/1))
+    %{new: new, updated: updated} = Events.store_events(Enum.map(events, &event_attrs/1))
+    stored = new ++ updated
+    count = length(stored)
 
     id_by_external_id = Map.new(stored, &{&1.external_id, &1.id})
 
@@ -86,7 +89,7 @@ defmodule PolyBot.EventFetch do
 
     # announce the chunk only after its markets are committed, so a resync
     # triggered by this broadcast already sees them.
-    PubSub.broadcast(PolyBot.PubSub, "events:refreshed", {:events_refreshed, count})
+    Broadcast.broadcast_events_refreshed(count)
 
     count
   end

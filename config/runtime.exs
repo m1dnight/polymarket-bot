@@ -59,7 +59,9 @@ if config_env() != :test do
 
   config :poly_bot, :dashboard,
     # interval between dashboard stat refreshes, in ms
-    refresh_ms: optional("DASHBOARD_REFRESH_MS", :integer, 5_000)
+    refresh_ms: optional("DASHBOARD_REFRESH_MS", :integer, 5_000),
+    # window for coalescing price-change activity into one row-blink push, in ms
+    blink_ms: optional("DASHBOARD_BLINK_MS", :integer, 300)
 end
 
 if config_env() == :prod do

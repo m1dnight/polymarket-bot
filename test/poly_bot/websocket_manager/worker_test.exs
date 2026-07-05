@@ -10,7 +10,6 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
 
   use ExUnit.Case, async: true
 
-  alias Phoenix.PubSub
   alias PolyBot.WebSocketManager.Worker
 
   @moduletag :capture_log
@@ -184,7 +183,7 @@ defmodule PolyBot.WebSocketManager.WorkerTest do
 
       # a sync stored a new market and announces it.
       Agent.update(assets, fn _ -> ["a", "b"] end)
-      PubSub.broadcast(PolyBot.PubSub, "events:refreshed", {:events_refreshed, 1})
+      PolyBot.Broadcast.broadcast_events_refreshed(1)
 
       assert_receive {:subscribed, _, ["b"]}
     end

@@ -103,3 +103,24 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* Event grid cells: a freshly rendered or freshly updated cell is green and
+   decays to transparent as no update arrives (the 10s span is the whole point
+   of the visualization, so it lives here as a constant). On market activity
+   the .Blink hook restarts this decay from zero. The end color must be the
+   flash green at zero alpha, not `transparent`: interpolating oklch toward
+   transparent sweeps the hue through magenta. */
+@keyframes cell-decay {
+  from {
+    background-color: var(--cell-flash);
+  }
+  to {
+    background-color: oklch(from var(--cell-flash) l c h / 0);
+  }
+}
+
+.event-cell {
+  /* plain green: the theme's --color-success reads teal */
+  --cell-flash: oklch(72% 0.19 150);
+  animation: cell-decay 10s ease-out forwards;
+}

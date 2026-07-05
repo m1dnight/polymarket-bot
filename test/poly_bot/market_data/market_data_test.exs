@@ -78,6 +78,31 @@ defmodule PolyBot.MarketDataTest do
 
       assert {:ok, {^id, 0.42, 0.44, _, _}} = MarketData.get(id)
     end
+
+    # The shared "market_data:asset_price_changes" topic also carries other async
+    # tests' broadcasts, so these assertions pin their own asset ids.
+    test "announces the recorded asset ids on market_data:asset_price_changes" do
+      {id_a, id_b} = {unique_id(), unique_id()}
+      PolyBot.Broadcast.subscribe_asset_price_changes()
+
+      event = price_change_event([{id_a, 0.10, 0.12}, {id_b, 0.90, 0.92}])
+      assert :ok = MarketData.record_price_changes(event)
+
+      assert_receive {:asset_price_changes, [^id_a, ^id_b]}
+    end
+
+    test "does not announce skipped (one-sided) changes" do
+      {complete, partial} = {unique_id(), unique_id()}
+      PolyBot.Broadcast.subscribe_asset_price_changes()
+
+      event = price_change_event([{complete, 0.42, 0.44}, {partial, nil, 0.50}])
+      assert :ok = MarketData.record_price_changes(event)
+
+      assert_receive {:asset_price_changes, [^complete]}
+
+      assert :ok = MarketData.record_price_changes(price_change_event([{partial, nil, 0.60}]))
+      refute_received {:asset_price_changes, [^partial]}
+    end
   end
 
   # ---------------------------------------------------------------------------#

@@ -26,7 +26,7 @@ defmodule PolyBot.WebSocketManager.Worker do
 
   require Logger
 
-  alias Phoenix.PubSub
+  alias PolyBot.Broadcast
   alias PolyBot.WebSocketManager
 
   @default_conn_cap 2500
@@ -217,7 +217,7 @@ defmodule PolyBot.WebSocketManager.Worker do
   @impl true
   def init(opts) do
     # subscribe to events about events being refreshed
-    PubSub.subscribe(PolyBot.PubSub, "events:refreshed")
+    Broadcast.subscribe_events_refreshed()
 
     socket_options = %{
       connect_fn: Keyword.get(opts, :connect_fn, &WebSocketManager.connect/0),

@@ -10,6 +10,7 @@ defmodule PolyBot.Contexts.Events do
 
   import Ecto.Query, only: [from: 2]
 
+  alias PolyBot.Broadcast
   alias PolyBot.Contexts.Markets
   alias PolyBot.Contexts.Schemas.Event
   alias PolyBot.Contexts.Schemas.EventPayload
@@ -112,14 +113,17 @@ defmodule PolyBot.Contexts.Events do
   to `upsert_event/1`. Existing events (matched on `external_id`) have their
   status flags refreshed; new ones are inserted.
 
-  Returns `{count, rows}`, where `rows` are the upserted events with their
-  surrogate `id` and `external_id` loaded (both for freshly inserted and for
-  conflict-updated rows), so callers can link owned rows — e.g. an event's
-  markets — to each event without a second query. An empty list returns
-  `{0, []}`.
+  Returns `{count, rows}`, where `rows` are the upserted events as fully-loaded
+  structs (both for freshly inserted and for conflict-updated rows), so callers
+  can link owned rows — e.g. an event's markets — to each event without a
+  second query. An empty list returns `{0, []}`.
 
   Duplicate `external_id`s within `attrs_list` are collapsed to their first
   occurrence, since Postgres cannot update the same row twice in one upsert.
+
+  This is the plain write: no classification, no broadcasts. Callers that need
+  to know which events are new — or want them announced — should go through
+  `store_events/1`.
 
   ## Examples
 
@@ -131,6 +135,8 @@ defmodule PolyBot.Contexts.Events do
 
   """
   @spec upsert_events([map()]) :: {non_neg_integer(), [Event.t()]}
+  def upsert_events([]), do: {0, []}
+
   def upsert_events(attrs_list) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -142,8 +148,55 @@ defmodule PolyBot.Contexts.Events do
     Repo.insert_all(Event, rows,
       on_conflict: {:replace_all_except, @conflict_preserve},
       conflict_target: :external_id,
-      returning: [:id, :external_id]
+      returning: true
     )
+  end
+
+  @doc """
+  Upsert `attrs_list` (via `upsert_events/1`) and split the result into
+  `%{new: events, updated: events}` — the events inserted for the first time
+  vs the conflict-updates of events already stored.
+
+  The pre-select of already-known `external_id`s and the upsert run in a
+  single transaction, so the classification is consistent with what the upsert
+  saw. Once the transaction commits, the new events (if any) are broadcast as
+  `{:events_new, events}` on the `"events:new"` PubSub topic — updates stay
+  silent, so subscribers only hear about events Polymarket newly listed.
+
+  ## Examples
+
+      iex> store_events([%{external_id: "1", active: true}])
+      %{new: [%Event{external_id: "1"}], updated: []}
+
+      iex> store_events([%{external_id: "1", closed: true}])
+      %{new: [], updated: [%Event{external_id: "1"}]}
+
+  """
+  @spec store_events([map()]) :: %{new: [Event.t()], updated: [Event.t()]}
+  def store_events([]), do: %{new: [], updated: []}
+
+  def store_events(attrs_list) do
+    external_ids = attrs_list |> Enum.map(& &1.external_id) |> Enum.uniq()
+
+    {:ok, {new_events, updated}} =
+      Repo.transaction(fn ->
+        known =
+          MapSet.new(
+            Repo.all(
+              from e in Event, where: e.external_id in ^external_ids, select: e.external_id
+            )
+          )
+
+        {_count, stored} = upsert_events(attrs_list)
+
+        Enum.split_with(stored, &(not MapSet.member?(known, &1.external_id)))
+      end)
+
+    if new_events != [] do
+      Broadcast.broadcast_events_new(new_events)
+    end
+
+    %{new: new_events, updated: updated}
   end
 
   @doc """

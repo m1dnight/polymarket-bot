@@ -32,6 +32,20 @@ defmodule PolyBot.Contexts.MarketsTest do
     end
   end
 
+  describe "count_assets/0" do
+    test "returns 0 when there are no markets" do
+      assert Markets.count_assets() == 0
+    end
+
+    test "sums the token ids across markets, skipping markets without any" do
+      Fixtures.market_fixture(%{clob_token_ids: ["tok-1", "tok-2"]})
+      Fixtures.market_fixture(%{clob_token_ids: ["tok-3"]})
+      Fixtures.market_fixture(%{clob_token_ids: nil})
+
+      assert Markets.count_assets() == 3
+    end
+  end
+
   describe "list_subscribable_asset_ids/0" do
     @tradable %{active: true, closed: false, accepting_orders: true, enable_order_book: true}
 

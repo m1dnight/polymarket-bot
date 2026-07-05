@@ -63,4 +63,4 @@ config :poly_bot, :market_data,
   sweep_interval_ms: 0,
   staleness_threshold_ms: 30_000
 
-config :poly_bot, :dashboard, refresh_ms: 5_000
+config :poly_bot, :dashboard, refresh_ms: 5_000, blink_ms: 300

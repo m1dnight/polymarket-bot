@@ -12,6 +12,7 @@ defmodule PolyBotWeb.DashboardLiveTest do
 
     assert has_element?(view, "#event-store-stats #stat-events", "1")
     assert has_element?(view, "#event-store-stats #stat-markets", "0")
+    assert has_element?(view, "#event-store-stats #stat-assets", "0")
     assert has_element?(view, "#websocket-stats #stat-connections")
     assert has_element?(view, "#websocket-stats #stat-disconnects")
     assert has_element?(view, "#websocket-stats #stat-msg-rate")

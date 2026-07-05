@@ -1,4 +1,16 @@
 <Layouts.app flash={@flash}>
+  <nav id="dashboard-tabs" class="mb-6 flex gap-5 border-b border-base-300 text-sm">
+    <.link navigate={~p"/dashboard"} class="-mb-px border-b-2 border-base-content pb-2">
+      Stats
+    </.link>
+    <.link
+      navigate={~p"/dashboard/events"}
+      class="pb-2 text-base-content/60 hover:text-base-content"
+    >
+      Events
+    </.link>
+  </nav>
+
   <div class="grid gap-x-6 gap-y-6 sm:grid-cols-3">
     <.panel id="websocket-stats" title="Websockets">
       <.stat_row
@@ -18,6 +30,7 @@
     <.panel id="event-store-stats" title="Event store">
       <.stat_row id="stat-events" label="Events" value={format_int(@event_count)} />
       <.stat_row id="stat-markets" label="Markets" value={format_int(@market_count)} />
+      <.stat_row id="stat-assets" label="Assets" value={format_int(@asset_count)} />
     </.panel>
 
     <.panel id="lifespan-stats" title="Avg socket lifespan">

@@ -6,8 +6,8 @@ defmodule PolyBot.WebSocketManager.Handler do
   bumps the `:ws_messages` counter in `PolyBot.Stats`, and `price_change`
   events are additionally recorded into the top-of-book table via
   `PolyBot.MarketData.record_price_changes/1` (one batched ETS insert plus
-  dirty notifications). All other event types are counted but otherwise
-  ignored for now.
+  dirty notifications and a frame-level PubSub announcement). All other event
+  types are counted but otherwise ignored for now.
   """
 
   @behaviour Polymarket.WebSocket.Handler
