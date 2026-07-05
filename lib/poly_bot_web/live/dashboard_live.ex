@@ -1,7 +1,7 @@
 defmodule PolyBotWeb.DashboardLive do
   @moduledoc """
   Minimal operational dashboard for the bot: database counts (events, markets),
-  aggregate websocket pool stats and historical disconnect lifespans, refreshed
+  aggregate websocket pool stats and average socket lifespans, refreshed
   every `PolyBot.Parameters.dashboard_refresh_ms/0`.
 
   The pool read can stall behind an in-flight subscribe on the worker, so it is
@@ -191,8 +191,4 @@ defmodule PolyBotWeb.DashboardLive do
   defp format_duration(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
   defp format_duration(seconds), do: "#{div(seconds, 3600)}h #{seconds |> rem(3600) |> div(60)}m"
 
-  # Historical lifespans are stored in whole minutes; reuse the seconds-based
-  # duration formatter so the display units match the live pool tiles.
-  defp format_minutes(nil), do: "–"
-  defp format_minutes(minutes), do: format_duration(round(minutes * 60))
 end

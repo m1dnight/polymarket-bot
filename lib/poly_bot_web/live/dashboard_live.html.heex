@@ -39,10 +39,17 @@
       <.stat_row id="stat-markets" label="Markets" value={format_int(@market_count)} />
     </.panel>
 
-    <.panel id="disconnect-stats" title="Disconnect lifespan">
-      <.stat_row id="stat-lifespan-min" label="Min" value={format_minutes(@lifespan_stats.min)} />
-      <.stat_row id="stat-lifespan-avg" label="Avg" value={format_minutes(@lifespan_stats.avg)} />
-      <.stat_row id="stat-lifespan-max" label="Max" value={format_minutes(@lifespan_stats.max)} />
+    <.panel id="lifespan-stats" title="Avg socket lifespan">
+      <.stat_row
+        id="stat-lifespan-connected"
+        label="Connected"
+        value={format_duration(@lifespan_stats.connected)}
+      />
+      <.stat_row
+        id="stat-lifespan-disconnected"
+        label="Disconnected"
+        value={format_duration(@lifespan_stats.disconnected)}
+      />
     </.panel>
   </div>
 </Layouts.app>

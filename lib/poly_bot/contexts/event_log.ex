@@ -14,8 +14,9 @@ defmodule PolyBot.Contexts.EventLog do
   alias PolyBot.Contexts.Schemas.EventLine
   alias PolyBot.Repo
 
-  # Stored form of the disconnect telemetry event (see `PolyBot.EventHandler`,
-  # which logs `inspect([:poly_bot, :websocket, :disconnect])`).
+  # Stored form of the connect/disconnect telemetry events (see
+  # `PolyBot.EventHandler`, which logs `inspect(event_name)`).
+  @connect_event "[:poly_bot, :websocket, :connect]"
   @disconnect_event "[:poly_bot, :websocket, :disconnect]"
 
   @doc """
@@ -59,29 +60,53 @@ defmodule PolyBot.Contexts.EventLog do
   end
 
   @doc """
-  Min, max and average websocket lifespan (minutes) across all logged
-  disconnects. Each field is `nil` when there are no disconnect rows.
+  Average websocket lifespan in whole seconds since the application booted,
+  split into sockets that already logged a disconnect (connect to disconnect
+  line) and sockets still connected (connect line with no matching disconnect,
+  measured up to now). An average is `nil` when no socket falls in that class.
+
+  Only connect lines inserted after boot are counted, so connects orphaned by
+  a previous run are never reported as still connected.
 
   ## Examples
 
       iex> websocket_lifespan_stats()
-      %{min: 1.0, max: 180.0, avg: 42.5}
+      %{connected: 512, disconnected: 3600}
 
   """
   @spec websocket_lifespan_stats() :: %{
-          min: float() | nil,
-          max: float() | nil,
-          avg: float() | nil
+          connected: non_neg_integer() | nil,
+          disconnected: non_neg_integer() | nil
         }
   def websocket_lifespan_stats do
-    Repo.one(
-      from l in EventLine,
-        where: l.event == @disconnect_event,
+    {uptime_ms, _} = :erlang.statistics(:wall_clock)
+    booted_at = DateTime.add(DateTime.utc_now(), -uptime_ms, :millisecond)
+
+    query =
+      from c in EventLine,
+        where: c.event == ^@connect_event,
+        where: c.inserted_at >= ^booted_at,
+        left_join: d in EventLine,
+        on: d.event == ^@disconnect_event and d.metadata["id"] == c.metadata["id"],
         select: %{
-          min: min(fragment("(?->>'lifespan')::float", l.metadata)),
-          max: max(fragment("(?->>'lifespan')::float", l.metadata)),
-          avg: avg(fragment("(?->>'lifespan')::float", l.metadata))
+          connected:
+            type(
+              filter(
+                avg(fragment("EXTRACT(EPOCH FROM (now() - ?))", c.inserted_at)),
+                is_nil(d.id)
+              ),
+              :integer
+            ),
+          disconnected:
+            type(
+              filter(
+                avg(fragment("EXTRACT(EPOCH FROM (? - ?))", d.inserted_at, c.inserted_at)),
+                not is_nil(d.id)
+              ),
+              :integer
+            )
         }
-    )
+
+    Repo.one(query)
   end
 end

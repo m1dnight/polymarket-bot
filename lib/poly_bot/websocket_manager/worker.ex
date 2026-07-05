@@ -46,7 +46,8 @@ defmodule PolyBot.WebSocketManager.Worker do
   @type socket_state :: %{
           socket: pid(),
           created: DateTime.t(),
-          assets: MapSet.t(asset_id())
+          assets: MapSet.t(asset_id()),
+          id: String.t()
         }
 
   @typedoc "The connection pool, keyed by connection pid."
@@ -489,13 +490,14 @@ defmodule PolyBot.WebSocketManager.Worker do
   # exist.
   @spec socket_create(socket_options()) :: {:ok, socket_state()} | {:error, term()}
   defp socket_create(socket_options) do
+    id = Ecto.UUID.generate()
     # fire an event to log that a websocket was created.
-    :telemetry.execute([:poly_bot, :websocket, :connect], %{count: 1}, %{})
+    :telemetry.execute([:poly_bot, :websocket, :connect], %{count: 1}, %{id: id})
 
     case socket_options.connect_fn.() do
       {:ok, socket} ->
         Process.monitor(socket)
-        {:ok, %{socket: socket, created: DateTime.utc_now(), assets: MapSet.new()}}
+        {:ok, %{socket: socket, created: DateTime.utc_now(), assets: MapSet.new(), id: id}}
 
       {:error, reason} ->
         {:error, reason}
@@ -516,7 +518,7 @@ defmodule PolyBot.WebSocketManager.Worker do
     lifespan = DateTime.diff(now, socket.created, :minute)
 
     :telemetry.execute([:poly_bot, :websocket, :disconnect], %{count: 1}, %{
-      lifespan: lifespan,
+      id: socket.id,
       reason: reason,
       asset_size: MapSet.size(socket.assets)
     })
